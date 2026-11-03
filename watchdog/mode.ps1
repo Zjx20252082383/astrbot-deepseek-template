@@ -1,8 +1,13 @@
-# 模式切换：offline = 省 token（QQ 离线，只跑定时任务），online = 完整功能
-# 用法：powershell -File mode.ps1 -Mode online|offline （或直接双击根目录的 在线模式.bat / 离线模式.bat）
+﻿# Bot mode switch: offline = save tokens (diary only), online = full features
 param([string]$Mode)
-$base = Split-Path -Parent $PSScriptRoot
+$base = "E:\Users\zjx\Desktop\deepseek接QQ小号"
+$pluginsDir = "$base\data\plugins"
+$stashDir = "$base\data\plugins_offline"
 $log = "$base\data\watchdog.log"
+
+# token-burning proactive plugins: offline mode stashes them OUT of data\plugins
+# (AstrBot scans every dir under data\plugins, renaming to *.disabled does NOT work)
+$stashable = @("astrbot_plugin_Conversa", "astrbot_plugin_autonomous_social")
 
 function Log($m) {
     try { "$([DateTime]::Now.ToString('MM-dd HH:mm:ss')) [mode] $m" | Add-Content $log -Encoding UTF8 } catch {}
@@ -16,49 +21,46 @@ if ($Mode -ne "offline" -and $Mode -ne "online") {
 Set-Content -Path "$base\watchdog\mode.txt" -Value $Mode -Encoding ASCII
 
 if ($Mode -eq "offline") {
-    # 停用费 token 的主动社交插件（只停这个开关停过的，不动手动停用的）
-    $plugins = @(
-        "$base\data\plugins\astrbot_plugin_autonomous_social"
-    )
-    $marker = "$base\watchdog\disabled_by_offline.txt"
-    $disabled = @()
-    foreach ($p in $plugins) {
-        if (Test-Path $p) {
-            Rename-Item $p "$p.disabled" -ErrorAction SilentlyContinue
-            $disabled += "$p.disabled"
+    if (-not (Test-Path $stashDir)) { New-Item -ItemType Directory -Path $stashDir | Out-Null }
+    $stashed = @()
+    foreach ($name in $stashable) {
+        if (Test-Path "$pluginsDir\$name.disabled") {
+            Rename-Item "$pluginsDir\$name.disabled" $name -ErrorAction SilentlyContinue
+        }
+        if (Test-Path "$pluginsDir\$name") {
+            Move-Item "$pluginsDir\$name" "$stashDir\$name" -Force
+            $stashed += $name
         }
     }
-    if ($disabled.Count -gt 0) {
-        Set-Content -Path $marker -Value $disabled -Encoding ASCII
+    if ($stashed.Count -gt 0) {
+        Set-Content -Path "$base\watchdog\offline_stashed.txt" -Value $stashed -Encoding ASCII
     }
-    # 停掉 SnowLuma（QQ 下线）
-    Get-CimInstance Win32_Process -Filter "Name like 'node%'" |
-        Where-Object { $_.CommandLine -like '*snowluma*' } |
-        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-    Log "OFFLINE mode set: SnowLuma stopped, AstrBot restarting"
-    Write-Host "[OFFLINE] QQ 已下线，费 token 插件已停用。定时任务仍在运行。"
+    Get-Process QQ -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    Log "OFFLINE: stashed [$($stashed -join ', ')], QQ closed, AstrBot restarting"
+    Write-Host "[OFFLINE] token-burning plugins stashed. Diary tasks still run."
 } else {
-    # 恢复本开关停用的插件
-    $marker = "$base\watchdog\disabled_by_offline.txt"
+    $marker = "$base\watchdog\offline_stashed.txt"
     if (Test-Path $marker) {
         Get-Content $marker | ForEach-Object {
-            $line = $_.Trim()
-            if ($line -and (Test-Path $line)) {
-                $newName = $line -replace '\.disabled$', ''
-                Rename-Item $line $newName -ErrorAction SilentlyContinue
+            $name = $_.Trim()
+            if ($name -and (Test-Path "$stashDir\$name")) {
+                Move-Item "$stashDir\$name" "$pluginsDir\$name" -Force
             }
         }
         Remove-Item $marker -ErrorAction SilentlyContinue
     }
-    Start-Process wscript.exe -ArgumentList "`"$base\snowluma_service_hidden.vbs`"" -WindowStyle Hidden
-    Log "ONLINE mode set: SnowLuma starting, AstrBot restarting"
-    Write-Host "[ONLINE] 所有功能已恢复。"
+    foreach ($name in $stashable) {
+        if ((Test-Path "$pluginsDir\$name.disabled") -and (-not (Test-Path "$pluginsDir\$name"))) {
+            Rename-Item "$pluginsDir\$name.disabled" $name -ErrorAction SilentlyContinue
+        }
+    }
+    Log "ONLINE: plugins restored, AstrBot restarting. Open QQ manually and log in."
+    Write-Host "[ONLINE] plugins restored. Open QQ and log in; SnowLuma hooks it automatically."
 }
 
-# 重启 AstrBot 使插件状态生效
 Get-CimInstance Win32_Process -Filter "Name like 'python%'" |
     Where-Object { $_.CommandLine -like '*astrbot*' } |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 Start-Sleep -Seconds 2
-Start-Process wscript.exe -ArgumentList "`"$base\astrbot_service_hidden.vbs`"" -WindowStyle Hidden
-Write-Host "AstrBot 重启中... 约 40 秒后就绪"
+schtasks /Run /TN "BotAstrBot" | Out-Null
+Write-Host "AstrBot restarting... ready in ~40s"

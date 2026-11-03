@@ -1,8 +1,7 @@
-﻿# 看门狗（可选功能）：每轮检查 AstrBot / SnowLuma 是否存活，掉线自动拉起
-# 用法：用任务计划程序每 1~5 分钟运行一次 watchdog_hidden.vbs，或不定时手动运行
-$base = Split-Path -Parent $PSScriptRoot
+﻿﻿﻿﻿# Bot watchdog: checks RVC / AstrBot / NapCat every run, restarts if down.
+$base = "E:\Users\zjx\Desktop\deepseek接QQ小号"
 $log = "$base\data\watchdog.log"
-$wd = $PSScriptRoot
+$wd = "$base\watchdog"
 
 function Log($msg) {
     try {
@@ -32,28 +31,33 @@ function CooldownOk($name, $seconds) {
     return $true
 }
 
-function Start-Hidden($vbs) {
-    Start-Process wscript.exe -ArgumentList "`"$vbs`"" -WindowStyle Hidden
-}
-
-# 离线模式：主人主动下线，不自动拉起
-$botMode = "online"
-$modeFile = "$wd\mode.txt"
-if (Test-Path $modeFile) { $botMode = (Get-Content $modeFile -Raw).Trim() }
-
-# 1) AstrBot: 消息端口 6199 必须在监听
-if (-not (Test-Port 6199)) {
-    if (CooldownOk 'astrbot' 240) {
-        Log "AstrBot down -> start astrbot_service_hidden.vbs"
-        Start-Hidden "$base\astrbot_service_hidden.vbs"
+# 1) RVC service on 18888
+if (-not (Test-Port 18888)) {
+    if (CooldownOk 'rvc' 180) {
+        Log "RVC down -> schtasks Run RVCService"
+        schtasks /Run /TN "RVCService" | Out-Null
     }
 }
 
-# 2) SnowLuma: WebUI 端口 5099 必须在监听
+# 2) AstrBot: 6199 must be listening
+if (-not (Test-Port 6199)) {
+    if (CooldownOk 'astrbot' 240) {
+        Log "AstrBot down -> schtasks Run BotAstrBot"
+        schtasks /Run /TN "BotAstrBot" | Out-Null
+    }
+}
+
+# 3) SnowLuma: webui 5099 responding. QQ login itself is manual (scan QR);
+# offline mode: user intentionally took the bot offline - do NOT restart
+$botMode = "online"
+$modeFile = "$wd\mode.txt"
+if (Test-Path $modeFile) { $botMode = (Get-Content $modeFile -Raw).Trim() }
 if ($botMode -eq "offline") { return }
-if (-not (Test-Port 5099)) {
+
+$snowOk = Test-Port 5099
+if (-not $snowOk) {
     if (CooldownOk 'snowluma' 300) {
-        Log "SnowLuma down -> start snowluma_service_hidden.vbs"
-        Start-Hidden "$base\snowluma_service_hidden.vbs"
+        Log "SnowLuma down -> restart snowluma_service_hidden.vbs (QQ must be running & logged in)"
+        Start-Process wscript.exe -ArgumentList ('"{0}\snowluma_service_hidden.vbs"' -f $base)
     }
 }
