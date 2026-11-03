@@ -1,0 +1,13 @@
+﻿{
+    "timezone": "UTC+8",
+    "retention_days": 90,
+    "balance_admin_only": false,
+    "deepseek": {
+        "api_key": "",
+        "auto_detect_key": true,
+        "base_url": "https://api.deepseek.com",
+        "proxy_url": "",
+        "timeout": 15.0,
+        "cache_seconds": 60.0
+    }
+}

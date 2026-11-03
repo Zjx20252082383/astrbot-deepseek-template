@@ -1,0 +1,40 @@
+﻿{
+    "browser_type": "firefox",
+    "browser_mode": "embedded",
+    "cdp_url": "http://127.0.0.1:9222",
+    "verify_browser": true,
+    "default_search_engine": "必应搜索",
+    "banned_words": [
+        "pornhub",
+        "色情",
+        "成人",
+        "赌博",
+        "暴力",
+        "政治",
+        "反动",
+        "恐怖",
+        "谣言",
+        "诈骗",
+        "病毒"
+    ],
+    "default_url": "https://www.baidu.com",
+    "proxy": "",
+    "viewport_size": {
+        "width": 1920,
+        "height": 1400
+    },
+    "screenshot_quality": 65,
+    "enable_overlay": true,
+    "zoom_factor": 1.0,
+    "full_page_zoom_factor": 0,
+    "max_pages": 5,
+    "timeout": 30,
+    "chat_input_selector": "textarea, div[contenteditable='true'], input[type='text']",
+    "chat_send_selector": "",
+    "chat_wait_ms": 1500,
+    "supervisor": {
+        "max_memory_percent": 90,
+        "idle_timeout": 1800,
+        "monitor_interval": 10.0
+    }
+}

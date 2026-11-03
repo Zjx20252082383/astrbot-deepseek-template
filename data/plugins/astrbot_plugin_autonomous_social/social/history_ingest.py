@@ -1,0 +1,590 @@
+"""播种用户：让插件不必等「先聊过」才认识一个人。
+
+v1.9.0 之前，插件的用户池只有一条入口：消息观察。谁私聊过 bot，谁才进 state.json，
+念头才会在 TA 身上攒起来。刚装好的插件眼里一个人都没有，自主社交无从谈起。
+
+这里补两条入口，都不依赖插件装好后又聊过一句：
+
+- 历史导入：AstrBot 自己的会话数据库（data/data_v4.db，conversations 表）里存着
+  装插件之前聊过的所有会话。启动时与每半小时读一次（只读，不写），把还没进过
+  state.json 的私聊对象导进来：umo、聊过多少条、最后活跃时间。导进来的人
+  立刻开始攒念头——攒满的速度取决于对方最后一次说话是多久之前。
+- 播种名单（seed_users）：连历史都没有的人也能写进名单：她按较慢的节奏
+  （urge_scale=0.5）慢慢攒，攒到点就走正常的闸门与模型把关，主动找上门。
+  名单里的人被冷落够多次后自然被压下去，不会变成骚扰。
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import sqlite3
+import time
+from typing import Any, Dict, Iterator, List, Optional, Tuple
+
+from .sanitize import sanitize_incoming
+from .state import CONVERSATION_TRUNCATE_LENGTH, SocialState
+
+from astrbot.api import logger
+
+# AstrBot 数据目录下的会话数据库文件名：v4 起是 data_v4.db，更早期 4.x 是 data_v3.db
+_DB_FILENAMES = ("data_v4.db", "data_v3.db")
+
+# 一次导入最多看多少个会话。按更新时间倒序，足够覆盖「最近活跃的人」，
+# 又不至于把数据库里成千上万的旧会话全部拉进插件状态
+_MAX_CONVERSATIONS = 300
+
+# umo 形如 platform:message_type:session_id。AstrBot 的 MessageType 枚举值实际
+# 写的是 `FriendMessage`（私聊）/ `GroupMessage`（群）——官方文档与 napcat/
+# aiocqhttp 实际落库都是这个形式，不是 `private`/`group`。早先的表里只列了
+# 后者，结果 aiocqhttp 的 `FriendMessage` 会被当 unknown：既导不进任何真人（SQL
+# 过滤一个都不匹配），又会把群会话当未知放行。下面把真实枚举值与各
+# 平台/旧写法都认上（全部小写比较；SQL 的 LIKE 对 ASCII 大小写不敏感）。
+_PRIVATE_TYPES = {
+    "friendmessage", "directmessage",
+    "private", "p2p", "c2c", "friend", "single", "1:1",
+}
+_GROUP_TYPES = {"groupmessage", "guildmessage", "group", "g", "guild"}
+
+def _like_pattern(msg_type: str) -> str:
+    """转义 LIKE 里的通配符（下划线/百分号），再包上 umo 的 %:msg_type: 结构。
+    配合 _private_only_clause 的 ESCAPE '\\' 用。"""
+    s = msg_type.replace("%", "\\%").replace("_", "\\_")
+    return f"%:{s}:%"
+
+
+def _private_only_clause() -> str:
+    """在 SQL 里直接过滤私聊会话（带 ESCAPE 子句，下划线/百分号不会当通配符用）：
+    否则 ORDER BY updated_at + LIMIT 会被群会话占满名额（群消息不断刷新 updated_at），
+    私聊会话全部被挤出扫描窗口，装完插件一个「聊过的人」都导不进来。"""
+    return " OR ".join(
+        "user_id LIKE '%s' ESCAPE '\\'" % _like_pattern(t) for t in sorted(_PRIVATE_TYPES)
+    )
+
+
+def find_astrbot_db(data_dir: Optional[str]) -> Optional[str]:
+    """找 AstrBot 会话数据库文件，找不到返回 None。"""
+    if not data_dir:
+        return None
+    for name in _DB_FILENAMES:
+        path = os.path.join(data_dir, name)
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def parse_umo(umo: str) -> Tuple[str, str, str]:
+    """拆统一消息来源。
+
+    AstrBot 的 umo 形如 ``aiocqhttp:private:12345``（platform:message_type:session_id）。
+    拆不开时按最后一节当用户 ID，前缀原样保留，发送目标不会丢。
+    """
+    parts = str(umo or "").split(":")
+    if len(parts) >= 3:
+        return parts[0], parts[1].lower(), ":".join(parts[2:])
+    if len(parts) == 2:
+        return parts[0], "", parts[1]
+    return "", "", str(umo or "")
+
+
+def umo_kind(umo: str) -> str:
+    """private / group / unknown。"""
+    _, msg_type, _ = parse_umo(umo)
+    if msg_type in _PRIVATE_TYPES:
+        return "private"
+    if msg_type in _GROUP_TYPES:
+        return "group"
+    return "unknown"
+
+
+def _to_ts(value: Any) -> float:
+    """把数据库里的 updated_at 转成 unix 时间戳，读不出来给 0。
+
+    兼容三种存法：epoch 数字、ISO 字符串（Z 后缀、带时区、SQLite 的
+    「YYYY-MM-DD HH:MM:SS(.ffffff)±HH:MM」空格分隔写法）。"""
+    if value is None:
+        return 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        s = value.strip()
+        try:
+            return float(s)
+        except ValueError:
+            pass
+        try:
+            from datetime import datetime, timezone
+
+            if s.endswith("Z"):
+                s = s[:-1] + "+00:00"
+            elif len(s) >= 11 and s[10] == " ":
+                s = s[:10] + "T" + s[11:]  # SQLite 的空格分隔写法
+            dt = datetime.fromisoformat(s)
+            if dt.tzinfo is None:
+                # 无时区信息：SQLite 的 "YYYY-MM-DD HH:MM:SS" 惯例是 UTC。
+                # 直接 .timestamp() 会按**容器本地时区**解释（UTC+8 时早 8 小时），
+                # 而这里的结果会直接进 last_seen / urge_at。
+                dt = dt.replace(tzinfo=timezone.utc)
+            return float(dt.timestamp())
+        except (ValueError, TypeError):
+            return 0.0
+    return 0.0
+
+
+def _message_text(item: Any) -> str:
+    """从一条会话消息里取纯文本。content 可能是字符串，也可能是分段列表。"""
+    if not isinstance(item, dict):
+        return ""
+    content = item.get("content", item.get("text", ""))
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: List[str] = []
+        for seg in content:
+            if isinstance(seg, str):
+                parts.append(seg)
+            elif isinstance(seg, dict):
+                t = seg.get("text") or seg.get("content")
+                if isinstance(t, str):
+                    parts.append(t)
+        return "".join(parts)
+    return ""
+
+
+def recent_turns(content: Any, limit: int = 8) -> List[Dict[str, Any]]:
+    """从会话库里取最近 N 条双方消息，灌进插件账本。
+
+    为什么必须有：以前导入只写一条 `last_message`，**一条对话都不灌**。
+    于是那些用户在插件眼里等于「一年没说过话」——生成时能拿到的上下文只有
+    120 个字的一句话，模型没有任何可接的东西，只能反复讲自己身体那点状态。
+    生成时其实会另外去会话库补一段（`_generation_conversation`），但那是临时读的、
+    不落盘：反重复用不了、话题挖不出来、重启就没了。
+    """
+    if not isinstance(content, list):
+        return []
+    out: List[Dict[str, Any]] = []
+    for item in content:
+        if not isinstance(item, dict):
+            continue
+        role = str(item.get("role", "")).lower()
+        if role not in ("user", "assistant"):
+            continue
+        # 库里存的是拼装后的消息，混着框架注入块，入账前先洗
+        text = sanitize_incoming(_message_text(item))
+        if not text:
+            continue
+        # 会话库里只有会话级的 updated_at，没有逐条消息的时间；导入的 turn 一律 ts=0.0。
+        # 于是按时间过滤的逻辑（threads 的 last_in_text/recent_in_count/nearby、anchors 的
+        # relation_tier）对这批历史不生效。
+        out.append({
+            "dir": "out" if role == "assistant" else "in",
+            "text": text[:CONVERSATION_TRUNCATE_LENGTH],
+            "ts": 0.0,
+        })
+    n = max(0, int(limit))
+    if n <= 0:
+        # `out[-0:]` 是 `out[0:]`，会把**全部**条目返回（Python 的 -0 == 0 陷阱）。
+        return []
+    return out[-n:]
+
+
+# 从对方说过的话里挖「一件具体的事」——比 extract_open_loop 宽：
+# 不要求「提过没结果」，只要是一件发生过或即将发生的事就能当由头。
+#
+# 全部用**多字**词：这里是子串匹配，单字词（买/订/拿/交/取/寄/修/换/退/办/签）
+# 会把「我拿不定主意」「今天换了个发型」这种普通句子判成「有件事」，存进 anchors
+# 之后还会变成主动消息的依据。由头得是一件**说得出来**的事，不是一个字。
+_ANCHOR_WORDS = (
+    "面试", "体检", "搬家", "考试", "出差", "旅行", "旅游", "看医生", "复查",
+    "牙医", "驾照", "签证", "续签", "入职", "离职", "开学", "放假", "结婚",
+    "报名", "房租", "还书", "参加", "比赛", "演出", "手术",
+    "退货", "退款", "下单", "取快递", "寄快递", "寄出", "修好", "换工作",
+    "换手机", "办完", "办好", "签约", "签合同", "交了", "买好", "买了", "订票",
+)
+
+
+def extract_anchors(turns: List[Dict[str, Any]], limit: int = 4) -> List[str]:
+    """从会话账本里挖出可当由头的具体事项（最新在前）。"""
+    out: List[str] = []
+    seen = set()
+    for turn in reversed(list(turns or [])):
+        if not isinstance(turn, dict) or turn.get("dir") != "in":
+            continue
+        text = str(turn.get("text", "") or "").strip()
+        if not text:
+            continue
+        for seg in re.split(r"[，。！？；、,.!?;\s]+", text):
+            seg = seg.strip()
+            if not seg or len(seg) < 2 or len(seg) > 16:
+                continue
+            if not any(w in seg for w in _ANCHOR_WORDS):
+                continue
+            key = seg[:10]
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(seg[:16])
+            if len(out) >= max(1, int(limit)):
+                return out
+    return out
+
+
+def count_user_messages(content: Any) -> int:
+    """会话里的用户消息条数（驱动「聊过多少」的熟悉度）。"""
+    if not isinstance(content, list):
+        return 0
+    n = 0
+    for item in content:
+        if isinstance(item, dict) and str(item.get("role", "")).lower() == "user":
+            n += 1
+    return n
+
+
+def last_user_text(content: Any) -> str:
+    """会话里最后一条用户消息的文本（没有就是空串）。"""
+    if not isinstance(content, list):
+        return ""
+    for item in reversed(content):
+        if isinstance(item, dict) and str(item.get("role", "")).lower() == "user":
+            return _message_text(item).strip()
+    return ""
+
+
+def _connect_ro(db_path: str) -> sqlite3.Connection:
+    """只读连接：插件永远不写 AstrBot 的库。"""
+    return sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=5.0)
+
+
+def iter_conversations(
+    db_path: str, limit: int = _MAX_CONVERSATIONS, private_only: bool = False
+) -> Iterator[Dict[str, Any]]:
+    """按更新时间倒序逐个会话读出 user_id(umo)、updated_at、content。
+
+    private_only=True 时在 SQL 里就只扫私聊会话（群会话会刷新 updated_at 把私聊挤出
+    LIMIT 窗口）；表不存在 / 库打不开时静默结束（调用方记一次日志），不抛异常。
+    """
+    where = f" WHERE {_private_only_clause()}" if private_only else ""
+    try:
+        conn = _connect_ro(db_path)
+        try:
+            cursor = conn.execute(
+                f"SELECT user_id, updated_at, content FROM conversations{where} "
+                "ORDER BY updated_at DESC LIMIT ?",
+                (limit,),
+            )
+            for row in cursor:
+                umo, updated, raw = row
+                try:
+                    content = json.loads(raw) if isinstance(raw, str) else raw
+                except (TypeError, json.JSONDecodeError):
+                    content = None
+                yield {"umo": str(umo or ""), "updated_at": _to_ts(updated), "content": content}
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return
+
+
+def seed_target_bid(state: SocialState) -> str:
+    """播种进哪个 bot 名下。
+
+    只有一个角色就归 TA；多个角色时归 "default"，等第一条真实消息进来
+    migrate_default_bot 会把这批人搬到真实 bot_id 下。
+    """
+    bots = [k for k in state.data.get("bots", {}) if k != "default"]
+    if len(bots) == 1:
+        return bots[0]
+    return "default"
+
+
+def stable_uid(umo: str) -> str:
+    """从 umo 里取「这个人的稳定身份」。
+
+    WebChat 的 umo 形如 `webchat!naliling!<线程 UUID>`：每次开新会话 UUID 就变。
+    直接拿它当 uid 的话，同一个人会被建成一堆用户——各自攒念头、各自收问候、
+    关系与冷落记录被拆散，看起来像「她在同时追着好几个人说话」。
+
+    所以只取稳定的那一段。发送目标不受影响：真正发出去用的是用户记录上最新的
+    umo（observe 每条消息都会刷新它），身份与地址本来就不是一回事。
+    """
+    text = str(umo or "")
+    if "!" in text:
+        parts = text.split("!")
+        # 平台!身份!会话UUID：丢掉最后一段（会话），身份与平台留着
+        if len(parts) >= 3:
+            return "!".join(parts[:2])
+    _, _, session = parse_umo(text)
+    return session or text
+
+
+def _uid_of(umo: str) -> str:
+    return stable_uid(umo)
+
+
+def existing_uids(state: SocialState) -> set:
+    """state 里已有用户的 **(角色, 平台, uid)** 集合（历史导入的过滤快照）。
+
+    名字保留是因为 `engine.py` 直接按这个名字取值（那个文件本轮不改），但返回的
+    是配对而不是裸 uid：uid 只在**单个平台内**唯一，跨平台同名是不同的人。用裸
+    uid 判重时，QQ 上聊过的人会让 TG 上同名的人**永远**加不进来 —— 与
+    `existing_pairs` 的 docstring 描述的是同一个 bug。
+    """
+    return existing_pairs(state)
+
+
+def existing_pairs(state: SocialState) -> set:
+    """(角色, 平台, uid) 集合。判重必须用这个：uid 只在**单个平台内**唯一，
+    跨平台同名是不同的人。用裸 uid 判重时，QQ 上聊过的人会让 TG 上同名的人永远
+    加不进来；而只用 (角色, uid) 也不行 —— 播种名单里所有平台共用一个 `default`
+    bid，两个平台的人在同一个 bid 下依然同名冲突。平台从用户自己的 `umo` 解出。
+    """
+    out = set()
+    for bid, bot in (state.data.get("bots", {}) or {}).items():
+        if not isinstance(bot, dict):
+            continue
+        for uid, u in (bot.get("users") or {}).items():
+            umo = str((u or {}).get("umo") or "") if isinstance(u, dict) else ""
+            out.add((str(bid), str(parse_umo(umo)[0]), str(uid)))
+    return out
+
+
+def _known_uid(existing: set, bid: str, platform: str, uid: str) -> bool:
+    """existing 里是否已经有这个人。
+
+    认 `(角色, 平台, uid)` 三元组，也兼容旧式 `(角色, uid)` 与裸 uid：外部调用方
+    （engine）可能还在按老形状传值，宁可多判一层，也不要把同一个人判成两个。
+    """
+    bid, platform, uid = str(bid), str(platform), str(uid)
+    return (
+        (bid, platform, uid) in existing
+        or (bid, uid) in existing
+        or uid in existing
+    )
+
+
+def collect_from_history(
+    data_dir: Optional[str],
+    *,
+    private_only: bool = True,
+    store_text: bool = True,
+    existing_uids: Optional[set] = None,
+    target_bid: str = "default",
+    now: Optional[float] = None,
+) -> List[Dict[str, Any]]:
+    """只读会话库，产出「待导入条目」。全程不碰 state，可安全丢进线程池。
+
+    拆出来是为了让阻塞的那部分（sqlite 全表扫描 + 逐段 json.loads）能搬到
+    asyncio.to_thread：这段同步跑在事件循环上时，300 个会话就是几百毫秒到数秒，
+    期间 AstrBot 对**所有**消息都不响应。写 state 的部分必须留在主循环。
+    """
+    db_path = find_astrbot_db(data_dir)
+    if not db_path:
+        return []
+    now = float(now if now is not None else time.time())
+    existing = set(existing_uids or ())
+    rows: List[Dict[str, Any]] = []
+    for conv in iter_conversations(db_path, private_only=private_only):
+        umo = conv["umo"]
+        kind = umo_kind(umo)
+        # 只把**私聊**会话当「人」导入，**与 private_only 无关**。
+        #
+        # `private_only` 的名字、schema 提示与 config.py 的注释都只说一件事：
+        # 「要不要在群里主动说话」。而「把谁当成一个人」是另一回事 —— 原来两者
+        # 共用这一个开关，于是主人为了开群功能把它关掉时，群会话会被建成用户条目，
+        # 而条目的 `umo` 是**群地址**，发送路径照着它发：一句私聊口吻的主动消息
+        # 就直接进了群。群聊侧本来就有自己的容器（`bots[bid]["groups"]`）。
+        #
+        # 认不出的类型同样不导：宁可少导一个人，也不要把一个群当成一个人。
+        if kind != "private":
+            continue
+        uid = _uid_of(umo)
+        platform = parse_umo(umo)[0]
+        # 判重按 (角色, 平台, uid)：uid 只在单个平台内唯一，用裸 uid 会让跨平台的
+        # 同名用户被**永久**挡住（见 existing_pairs 的 docstring）。
+        if not uid or _known_uid(existing, target_bid, platform, uid):
+            continue
+        existing.add((str(target_bid), str(platform), str(uid)))
+        ts = conv["updated_at"]
+        row: Dict[str, Any] = {
+            "bid": target_bid,
+            "uid": uid,
+            "umo": umo,
+            "last_seen": ts if ts > 0 else now,
+            "urge_at": ts if ts > 0 else now,
+        }
+        content = conv["content"]
+        if content is not None:
+            row["message_count"] = min(count_user_messages(content), 500)
+            if store_text:
+                # 同上：库里存的是拼装后的消息，入库前先洗掉框架注入块
+                last = sanitize_incoming(last_user_text(content))
+                if last:
+                    # 头部而不是尾部：生成侧引用对方最后一句时取的是**前**若干字
+                    # （`TA最后说的是：「{last[:60]}」`），存尾部会让长消息的开头断掉。
+                    # 与 state.record_incoming 同一口径。
+                    row["last_message"] = last[:200]
+                row["conversation"] = recent_turns(content)
+        rows.append(row)
+    return rows
+
+
+def apply_history_rows(state: SocialState, rows: List[Dict[str, Any]]) -> int:
+    """把 collect_from_history 产出的条目写进状态。返回实际新增人数。"""
+    if not rows:
+        return 0
+    added = 0
+    for row in rows:
+        u = state.user(row["bid"], row["uid"])
+        # 线程读快照、主循环写之间可能已经有人聊过了：以主循环此刻的值为准
+        if u.get("umo"):
+            continue
+        u["umo"] = row["umo"]
+        u["source"] = "history"
+        u["last_seen"] = row["last_seen"]
+        # 念头从「最后聊天的时刻」开始攒：三天前聊过的人，攒不满三个小时就找上门
+        u["urge_at"] = row["urge_at"]
+        if row.get("message_count") is not None:
+            u["message_count"] = row["message_count"]
+        if row.get("last_message"):
+            u["last_message"] = row["last_message"]
+        if row.get("conversation"):
+            u["conversation"] = row["conversation"]
+        added += 1
+    if added:
+        state.mark_dirty()
+    return added
+
+
+def seed_diag_snapshot(
+    state: SocialState,
+    data_dir: Optional[str],
+    *,
+    now: Optional[float] = None,
+) -> Dict[str, Any]:
+    """读一次会话库现状，给状态面板展示「识别」到底跑没跑、认出了谁。
+
+    不写任何东西：已导入的数 state.json 里自己查，这里只报 db 路径、私聊会话数、
+    还能再导几个（未进 state 的）。
+    """
+    out: Dict[str, Any] = {
+        "db_path": None,
+        "private_conversations": 0,
+        "importable": 0,
+        "reason": "",
+    }
+    out["db_path"] = find_astrbot_db(data_dir)
+    if not out["db_path"]:
+        out["reason"] = "会话库未找到（data 目录解析不对或还没聊过天）"
+        return out
+    bid = str(seed_target_bid(state))
+    existing = existing_pairs(state)
+    convs = list(iter_conversations(out["db_path"], private_only=True))
+    out["private_conversations"] = len(convs)
+    out["importable"] = sum(
+        1 for c in convs
+        if _uid_of(c["umo"])
+        and not _known_uid(existing, bid, parse_umo(c["umo"])[0], _uid_of(c["umo"]))
+    )
+    return out
+
+
+def normalize_seed_entries(raw: Any, default_platform: str) -> List[Tuple[str, str, str]]:
+    """把 seed_users 配置归一成 (platform, user_id, msg_type) 列表。
+
+    每项接受三种写法：
+    - ``12345``：用户 ID，平台取默认（seed_platform）
+    - ``aiocqhttp:12345``：带平台的用户 ID
+    - ``aiocqhttp:private:12345``：完整 umo，照用
+
+    **只收私聊类型**：名单里的人是要被当成「一个人」攒念头、发私聊口吻消息的，
+    而 `users` 里放一个群 umo，发送路径就会照着它把消息发进群。写了群/频道类型时
+    丢掉并告警 —— 原来会静默建成一个「群用户」，然后在每次启动时被幽灵清扫删掉、
+    30 分钟后又播种回来，念头从头攒，周而复始。
+    """
+    items: Any = raw
+    if isinstance(raw, str):
+        items = raw.replace("，", ",").replace("；", ",").replace(";", ",").split(",")
+    elif not isinstance(raw, (list, tuple)):
+        items = [raw] if raw else []
+
+    out: List[Tuple[str, str, str]] = []
+    seen: set = set()
+    for x in items:
+        if x is None:
+            continue
+        s = str(x).strip()
+        if not s:
+            continue
+        parts = s.split(":")
+        if len(parts) >= 3:
+            platform, msg_type, uid = parts[0], parts[1], ":".join(parts[2:])
+        elif len(parts) == 2:
+            platform, uid = parts[0], parts[1]
+        else:
+            platform, uid = default_platform, s
+        platform, msg_type, uid = (
+            platform.strip() or default_platform,
+            msg_type.strip().lower() if len(parts) >= 3 else "private",
+            uid.strip(),
+        )
+        if not uid or (platform, uid) in seen:
+            continue
+        if msg_type not in _PRIVATE_TYPES:
+            logger.warning(
+                f"[autonomous_social] seed_users 里的 {s!r} 不是私聊会话（类型 {msg_type!r}），"
+                "已忽略：群/频道不能当「一个人」来主动私聊，群聊侧请用 group_* 开关"
+            )
+            continue
+        seen.add((platform, uid))
+        out.append((platform, uid, msg_type))
+    return out
+
+
+def apply_seed_list(
+    state: SocialState,
+    raw_entries: Any,
+    default_platform: str,
+    *,
+    now: Optional[float] = None,
+) -> int:
+    """把播种名单写成插件用户：没历史也能被她主动找。
+
+    名单里的人按 urge_scale=0.5 攒念头（比正常节奏慢一倍），被冷落够多次后
+    天花板机制会自然把她压下去。返回新增的人数。
+    """
+    now = float(now if now is None else time.time())
+    existing = existing_pairs(state)
+    bid = seed_target_bid(state)
+    added = 0
+    for entry in normalize_seed_entries(raw_entries, default_platform):
+        platform, uid, msg_type = entry
+        # 判重键与 existing_pairs 对齐（角色, 平台, uid）：只用 (bid, uid) 时，
+        # 播种名单里所有平台共用一个 default bid，TG 的同名 uid 仍会被 QQ 的挡住。
+        if _known_uid(existing, bid, platform, uid):
+            continue
+        umo = f"{platform}:{msg_type}:{uid}"
+        u = state.user(bid, uid)
+        # 上面那个三元组判重挡不住「同一个 uid 出现在另一个平台」：用户记录**只按
+        # (角色, uid) 索引**（`state.user(bid, uid)`），所以 `aiocqhttp:123` 与
+        # `telegram:123` 拿到的是**同一条记录**，`existing_pairs` 里那两个三元组却是
+        # 两条 —— 判重放行，然后写进别人的档案。`umo` 已经有值就说明这个人早就进来了
+        # （另一个平台，或历史导入），此时必须原样放过：继续往下走会把老用户
+        # `added` 重复计数，还会把 `urge_scale` 按「没聊过的人」覆盖成 0.5 ——
+        # 一个已经聊熟的人被按播种名单的慢节奏重算。
+        # 跨平台同名到底是不是同一个人，这套存储回答不了（一条记录只放得下一个 umo），
+        # 所以这里选**不动已有档案**：宁可漏掉一个新人，也不改错一个老用户。
+        if u.get("umo"):
+            continue
+        u["umo"] = umo
+        u["source"] = u.get("source") or "seed"
+        if float(u.get("last_seen", 0) or 0) <= 0:
+            u["last_seen"] = now
+            u["urge_at"] = now
+        # 没聊过的人，攒念头的速度打五折
+        u["urge_scale"] = 0.5
+        existing.add((str(bid), str(platform), str(uid)))
+        added += 1
+    if added:
+        state.mark_dirty()
+    return added

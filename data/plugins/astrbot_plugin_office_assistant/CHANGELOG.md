@@ -1,0 +1,501 @@
+# Changelog
+
+本文件记录 `astrbot_plugin_office_assistant` 的重要更新。
+
+格式参考 Keep a Changelog，版本号遵循语义化版本（SemVer）。
+
+## [v1.9.2] - 2026-09-30
+
+### Fixed
+
+- 修复读取带图 Word 时正文丢失，以及 Word、PPT 中部分表格和文字漏读的问题。
+- 修复上传图片后生成文档时找不到图片的问题；保存的图片记录损坏时，插件仍能启动并使用其他正常图片。
+- 修复不同用户或聊天之间可能误用文件、图片的问题，避免读取或删除其他聊天中的内容。
+- 修复同时生成同名文件时可能发错文件的问题；导出或转换失败时保留已有文件。
+- 修复 Excel 文件处理后宏丢失、筛选范围不正确的问题。
+- 修复 PPT 转 PDF 失败的问题，避免转换文件时关闭用户已打开的 Office 窗口。
+- 修复 PPT 表格内容被遗漏，以及添加文档内容失败后留下不完整内容的问题。
+- 修复预览图或提示消息发送失败时，已生成的文件无法正常发送的问题。
+- 修复部分 AstrBot 版本下，文档工具的权限限制或禁用设置未生效的问题。
+
+### Changed
+
+- 减少生成文档时机器人长时间无响应的情况。
+
+## [v1.9.1] - 2026-05-31
+
+### Added
+
+- 新增会话级图片资源池，用户上传图片后可注册为 `images/...` 受管引用，供 Word/PPT 文档工作流安全使用。
+- 新增 `/doc help`，可查看会话文件命令说明。
+- 新增 `/img help`，可查看图片资源池命令说明。
+- 新增 `/img add [备注]`，支持把当前消息图片或待注册缓存中的图片写入资源池。
+- 新增 `/img list`，可查看当前会话已注册图片。
+- 新增 `/img active`，可查看本轮文档/PPT 工作流允许直接使用的活动图片。
+- 新增 `/img use <序号或引用...|all>`，可手动选择一张或多张活动图片。
+- 新增 `/img note <序号或引用> <备注>`，可修改图片备注。
+- 新增 `/img clear [序号或引用|all]`，可清理当前会话图片资源。
+- 新增当前活动图片集机制：`/img add` 成功后自动把本次注册图片设为活动图片，文档/PPT 工作流默认只使用活动图片。
+- Word 结构化文档新增 `image` block 渲染，支持把资源池图片嵌入 `.docx`。
+- PPT `image_slide` 接入资源池图片，支持在 `.pptx` 中嵌入受管图片。
+- 图片资源支持 PNG/JPEG/WebP；WebP 注册时会转存为 PNG，保证 Office 输出兼容。
+
+### Changed
+
+- 文档/PPT 工作流只向模型暴露当前活动图片集，而不是全部历史注册图片，减少旧图被误选的情况。
+- 当存在活动图片集时，`add_blocks` / `add_slides` 会拒绝非活动图片引用，引导用户先用 `/img use` 切换图片。
+- 图片上传等待 `/img add` 超时后只继续当前 LLM 请求，不清理待注册资源；图片仍可在上传会话 TTL 内注册。
+- 混合上传文件和图片时，图片注册只消费图片资源，普通 Office/PDF/文本文件继续走上传缓冲与 `/doc` 工作流。
+- 图片路径校验统一收紧为资源池引用，禁止绝对路径、目录穿越和未注册图片进入 Word/PPT 渲染链路。
+
+## [v1.9.0-beta] - 2026-05-21
+
+### Added
+
+- PPT 渲染主链路：`create_document(format="ppt")` → `add_slides` → `finalize_document` → `export_document` → `.pptx`
+- 新增 `add_slides` 工具（Agent + MCP），专用于 PPT 文档，支持 title_slide / content_slide / table_slide / image_slide 四种 slide 类型
+- TS 渲染器基于 pptxgenjs 实现 PPT 生成，含默认主题系统（business_report / modern_minimal / dark）
+- `DocumentFormat` 类型集中定义，各模块统一引用
+- 守护测试：新增 block 类必须归入格式分组，否则测试失败
+- PPT 错误码集中到 `error-codes.ts`
+
+### Changed
+
+- `add_blocks` 仅用于 Word 文档；PPT 文档使用 `add_slides`
+- `normalize_slide_bullets` 集中到 contracts 层共享，只接受 str / number / `{text: ...}`
+- `_FORMAT_ALLOWED_BLOCK_TYPES` 白名单从 Pydantic 模型类自动推导
+- `render_backends.DocumentFormat` 重命名为 `RenderableFormat`
+- PPT 提示词从 `create_office_file` 引导移到新文档工具链
+
+### Fixed
+
+- `runtime_builder.py` 将 `ppt_preferred_backend` 从 `"python"` 改为 `"node"`
+- `AddSlidesTool` 和 MCP `add_slides` 显式校验 `document_id`
+- `image_path` 纵深防御：Python 层和 TS 层各自校验绝对路径和 `..` 遍历
+
+## [v1.8.0] - 2026-05-18
+
+### Added
+
+- `write_rows` 新增 `number_formats` 选项，支持按列设置 Excel 数字格式（货币、百分比、日期等）。
+- 条件格式场景检测与 domain hint 注入，引导模型使用 `CellIsRule`/`FormulaRule` 而非静态 PatternFill。
+
+### Fixed
+
+- 修复 exporter 对超出数据范围的列创建空单元格导致文件膨胀的问题。
+- 修复 `number_formats` 验证器对非字符串值给出模糊错误提示的问题。
+- 修复 `number_formats` 在 `start_row > 1` 时错误格式化表头行的问题。
+- 修复 Excel 公式质量检查将 Sheet 名引用中的单引号误判为文本字面量的问题。
+- 放宽 `execute_excel_script` 路由硬约束，允许编辑已有工作簿的纯值场景。
+- 修复 Sheet 名引用正则未匹配引号与感叹号之间可选空格的问题。
+
+### Changed
+
+- 重构 Excel 脚本提示词：精简 helper 列表，突出 `save_output_workbook` 为唯一保存方式。
+- 将 `message_buffer`、`pdf_converter`、`preview_generator`、`office_generator` 移入 `services/`，删除顶层 `export_pipeline.py` 兼容转发。
+
+## [v1.7.1.1-preview] - 2026-05-14
+
+### Fixed
+
+- 修复 `add_blocks` 的 `_RICH_LIST_ITEM_PUBLIC_SCHEMA` 缺少 `type: object` 声明，导致通过 OpenAI 兼容端点转发 Gemini 时严格 schema 校验拒绝所有请求的问题。
+
+## [v1.7.1-preview] - 2026-05-13
+
+### Added
+
+- 新增 `permission_settings.allow_all_users` 配置，可在受信环境中跳过管理员校验，让所有用户直接使用插件功能。
+
+### Changed
+
+- `write_rows` schema 兼容性优化：通过运行时 helper 强制保证 cell 类型一致性，适配严格 schema 校验的模型 provider。
+- `add_blocks` 在上游调度器把参数降级为空 kwargs 时，现在会打一条 warning 日志并返回明确的拆分指引，便于运维关联上游 JSON 解析问题。
+
+### Fixed
+
+- 修复 `add_blocks` 收到空参数时静默失败的问题，现在直接返回可操作的拆分指引，模型可据此修正调用策略。
+- 修复 `allow_all_users` 权限设置在 review 反馈后的若干边界问题。
+
+## [v1.7.0-preview] - 2026-05-01
+
+### Added
+
+- 新增 Excel 脚本执行链路，支持在 AstrBot runtime / sandbox 环境中运行受控脚本来生成或修改工作簿。
+- 新增 Excel 脚本模板和路由能力，可按请求类型在读取现有文件、workbook 会话和脚本执行之间选择更合适的流程。
+- 新增 Excel 脚本结果质量检查，生成文件存在明显结构问题或质量提示时，会把 `requires_review` 和 `quality_warnings` 返回给模型。
+- 新增 `allow_local_excel_script` 配置。`computer_use_runtime=local` 时可单独开放 `execute_excel_script`，不需要关闭 `auto_block_execution_tools`，通用 shell/python 执行工具仍会被隐藏。
+- 新增 `add_blocks` 公共 schema 测试辅助函数，方便稳定断言 provider 兼容字段。
+- 新增 `technical_resume` 模板的 `auto_page_break` 支持，可让模板页自行附带分页。
+
+### Changed
+
+- Excel 上传后的提示更贴近当前工具能力，明确什么时候可以读取、什么时候需要重新生成、什么时候当前环境不能执行脚本。
+- Excel 路由进一步细化，英文 `add` / `insert` 等编辑请求、混合文件编辑请求和 `.xls` 请求会进入更合适的处理流程。
+- Excel 脚本执行结果解析更严格，只接受结构化对象结果，并隔离输入文件，降低误读旧文件或无关文件的概率。
+- Excel sandbox 输出会保留调用方请求的文件后缀，避免内容格式和扩展名不一致。
+- `add_blocks` 公共 schema 进一步简化，继续规避 `anyOf`、`oneOf` 和 `type` 列表，同时保留运行时富文本能力。
+- Word 文档工具现在可接受 JSON 字符串形式的 `document_style`、`header_footer` 和 `blocks` 参数，更适配部分模型的工具调用格式。
+
+### Fixed
+
+- 修复 Excel 大工作簿读取预览过长时文本预算没有稳定生效的问题。([#55](https://github.com/Clhikari/astrbot_plugin_office_assistant/pull/55))
+- 修复 Excel 上传提示计数、混合文件编辑提示和英文 `add` / `insert` 编辑请求识别不稳的问题。([#55](https://github.com/Clhikari/astrbot_plugin_office_assistant/pull/55))
+- 修复 `add_blocks` 公共 schema 在部分模型 provider 中因复杂联合类型被拒的问题，同时保留列表和表格中的富文本能力。([#59](https://github.com/Clhikari/astrbot_plugin_office_assistant/pull/59))
+- 修复 `technical_resume` 的 `details` / `lines` 公共 schema 过窄，导致富文本 `runs` 被模型调用层拒绝的问题。([#60](https://github.com/Clhikari/astrbot_plugin_office_assistant/pull/60))
+- 修复 `technical_resume.sections[].heading` 被误传时验证失败的问题，现在会兼容转换为 `title`。([#60](https://github.com/Clhikari/astrbot_plugin_office_assistant/pull/60))
+
+## [v1.6.3-beta] - 2026-04-19
+
+### Added
+
+- 新增会话式 Excel 工作簿流程，支持 `create_workbook -> write_rows -> export_workbook` 分步创建报表，适合多 sheet、分批写入后再导出 `.xlsx`。
+- 新增 `workbook_id` 续写能力，上一轮创建的工作簿可以在后续对话里继续补写和导出。
+- 新增面向 Excel 报表场景的工作簿会话管理，支持在对话里连续维护同一份报表，而不是每次重新生成整份文件。
+
+### Changed
+
+- Excel 相关提示会更严格地区分“新建报表”“继续写入”“读取现有文件”“转换为其他格式”这几类请求，减少误用工具。
+- workbook 导出现在支持在工作区内使用相对子目录组织输出，例如 `reports/q1/final-report.xlsx`。
+
+## [v1.6.2] - 2026-04-16
+
+### Added
+
+- 段落富文本新增行内超链接支持，正文里可以直接插入可点击的外部链接和 `mailto` 链接。
+- 结构化 Word 渲染新增更完整的富文本样式能力，段落和表格单元格都可以控制字体、字号缩放、颜色、下划线、删除线、粗斜体等效果。
+- 新增段落边框和表格单元格边框控制，支持在正文和表格里直接做分隔线、强调边框和局部描边。
+
+### Changed
+
+- 旧格式的标题、颜色字段和表格单元格写法现在会自动兼容到新结构，已有调用方式更容易直接跑通。
+
+### Fixed
+
+- 修复 `create_document` 生成的长 `document_id` 容易在对话里被模型写错、漏写或改写，导致续写、定稿、导出中断的问题；现在改为更短的顺序编号，例如 `doc-1`、`doc-2`。([#52](https://github.com/Clhikari/astrbot_plugin_office_assistant/issues/52))
+- 修复富文本表格单元格在字号、默认样式和首列加粗继承上的一批显示问题，表格正文样式更稳定。
+- 修复段落和表格边框在空配置、缺失配置和显式配置之间处理不一致的问题，避免出现多余边框或边框不生效。
+- 修复一批结构化 Word 文档的分页和表头重复显示问题，长表格跨页时版面更稳定。
+
+## [v1.6.1] - 2026-04-12
+
+### Added
+
+- 新增表格正文单元格 `col_span` 能力，可直接做横向合并单元格。
+- 新增正文表格横向合并相关测试，覆盖导出后的 DOCX 结构验证。
+- 新增页眉页脚 `page_number_format` 支持，可控制页码格式为阿拉伯数字、罗马数字或字母序号。
+- 新增分节页码格式和按节重新起号相关测试，覆盖导出后的 DOCX 节属性验证。
+
+### Changed
+
+- 表格列宽推断现在会把横向合并单元格纳入度量，复杂表格布局更稳定。
+- `business_report` 主题下摘要框相关回归断言已对齐当前绿色摘要条设计，避免测试预期与实际输出脱节。
+
+### Fixed
+
+- 修复正文表格横向合并时，`col_span` 与已有 `row_span` 占位重叠却未被拦截的问题。
+- 修复 Node 渲染器对越界 `col_span` 只做裁剪、不报错的问题，现在会明确拒绝非法表格结构。
+- 修复 Node 渲染器会接受非整数、非正数 `col_span` 的问题，避免生成非法 DOCX 表格跨度。
+- 修复 Node 渲染器直调场景下 `page_number_format` 未校验的问题，非法格式现在会返回明确错误，而不是写出不合法的页码元数据。
+
+## [v1.6.0] - 2026-04-10
+
+这一版主要围绕复杂 Word 文档继续补能力、收细节。相对 `v1.5.1`，最明显的变化是正式文档的排版表现更完整了，技术简历这类场景现在可以直接出成品，文档续写和导出的提示也更准，另外 `/fileinfo` 可以直接看出当前环境能不能走 Word 的 Node 工具链。
+
+### Added
+
+- 新增技术简历页模板，适合直接生成中文技术简历。
+- 新增 `/fileinfo` 中的 Word 工具链状态显示，可直接查看当前环境下 Node 渲染链路是否可用，以及实际使用的渲染器入口路径。
+- 新增一套更完整的 Node Word 渲染能力，复杂文档里的封面、摘要卡片、目录、分节、页眉页脚、宽表、表格样式和页面模板都能走同一条导出链路。
+- 新增更多正式文档页面模板，除了常规商务报告，也更适合做简历、总结和汇报类文档。
+
+### Changed
+
+- Word 导出效果整体提升，复杂正式文档现在更接近可以直接交付的观感。
+- Word 渲染链路现在更明确地以 Node 渲染为主，复杂版式的一致性更稳定。
+- 多文件上传后的提示更简洁，省略展示和文件计数更准确，群聊和私聊里继续处理文件时更顺手。
+- 复杂 Word 四步工作流在续写、定稿、导出这些阶段的提示更清楚，模型中途跳错步骤的情况少了一些。
+- 文件读取、导出和工具拒绝这几类失败场景，现在返回的信息更直接，用户更容易知道下一步该怎么做。
+
+### Fixed
+
+- 修复一批复杂 Word 导出中的版式和兼容性问题，包括表格布局、分节衔接、默认样式继承、目录、页眉页脚、宽表分页和模板细节。
+- 修复技术简历模板接线和运行路径上的问题，避免模板可见但导出结果不对的情况。
+- 修复文档续写和导出时 `document_id` 后续识别不稳定的问题，现在中文、英文、反引号、全角冒号这些常见写法都能更稳定地识别。
+- 修复降级模式下文档跟进提示容易误报“文档不存在”的问题，缺少摘要查询能力时会回退到普通文档工具指引。
+- 修复上传文件提示、多文件省略展示和文件读取边界上的若干体验问题，减少提示不准或信息过杂的情况。
+
+## [v1.5.1] - 2026-04-02
+
+这一版主要把群聊文件处理和私聊文件处理重新分开了。相对 `v1.5.0`，用户最容易直接感受到的是群聊里现在可以先传文件、再用 `/doc` 接着处理，私聊里原来的自动处理习惯也保住了。
+
+### Added
+
+- 群聊新增 `/doc` 文件会话命令，支持 `list`、`clear`、`clear f1`、`use f1 ...`、`use f1 f2 ...` 这类写法。
+- 群聊上传文件后会给当前会话里的文件分配短编号，例如 `f1`、`f2`，后续可以直接按编号指定文件。
+
+### Changed
+
+- 群聊上传文件后，默认先进入待处理列表，不再立刻自动开始处理；可以等用户确认后再用 `/doc` 继续。
+- 私聊上传文件时，继续保留原来的自动处理体验，不需要额外先走 `/doc`。
+- 多文件场景下，可以在 `/doc use` 里一次选中多个文件一起处理。
+
+## [v1.5.0] - 2026-04-01
+
+这一版主要把 Word 正式文档能力补到可交付状态。相对 `v1.4.3`，这次最直接的变化是页眉页脚、分节、目录已经接入四步工作流，横向宽表、节级页码和复杂分页也补了一轮稳定性处理，综合生成时的成功率和版面一致性都更好了一些。
+
+### Added
+
+- 新增文档级页眉页脚配置，支持首页差异、奇偶页差异、页码显示和对齐。
+- 新增 `section_break` 块，支持新页分节、横纵向切换、节级边距、页码重置和起始页码。
+- 新增 `toc` 块，支持目录标题、层级和单独起页，并写入 Word 原生目录字段。
+- 新增 Word 相关回归测试，覆盖页眉页脚、分节继承、目录字段、横向节、页码重置、嵌套分节和默认基线行为。
+
+### Changed
+
+- Word 四步工作流的 schema、session store、builder 和工具说明已对齐，复杂文档现在可以稳定表达页眉页脚、目录和分节布局。
+- `add_blocks` 在进入 schema 校验前增加了一层兼容归一化，能自动修正高频错位字段和常见别名，例如 `toc.text`、`table.items`、`table.columns` 以及误挂到 `heading`、`paragraph`、`table` 上的分节字段。
+- 文档工具提示改为更明确的结构约束，横向宽表、目录和节级页码的合法写法现在更清楚。
+- `style.font_scale` 与 `layout.spacing_*` 的边界值已改为共享常量，schema 归一化和提示文案保持同一套范围。
+- Word 导出链路补齐了正式文档场景下的稳定性处理，包括 Word 打开兼容、标题层级语义、横向宽表分页衔接、section 页码继承，以及复杂块结构的容错归一化。
+
+## [v1.4.3] - 2026-03-30
+
+这一版主要补齐了 Office 助手在 Discord 平台下的文件工具大部分适配
+
+- 群聊艾特读取文件还没有适配，非要读取把群聊需要艾特给关了
+
+### Added
+
+- 新增 Discord 群聊缓冲上传场景的文件工具适配，支持优先基于平台级提及信息判断是否满足 `@机器人` 触发条件。
+- 新增框架 `admins_id` 兜底支持，插件权限判断现在可以识别框架管理员配置。
+- 新增针对 Discord 缓冲上传、管理员刷新、旧版配置路径和标量 `admins_id` 配置的回归测试。
+
+### Changed
+
+- 文件缓冲重放后不再覆盖平台原始 `raw_message`，从而保留 Discord 原始消息上的 `mentions` 等平台字段。
+- 文件工具隐藏日志现在会区分“无文件权限”和“未满足群聊触发条件”，排查时更容易定位卡点。
+- 管理员 ID 解析结构改为更清晰的 resolver 对象，并保留显式刷新能力。
+- 管理员 ID 归一化与配置解析逻辑进一步收紧，对动态集合、旧版配置和异常配置的兼容性更稳。
+
+## [v1.4.2] - 2026-03-29
+
+这一版主要把 Word 文档的样式能力继续往前推，并补强了长表格在正式文档里的分页表现。相对 `v1.4.1`，这次用户更容易直接感受到的是整份文档的默认样式开始可控，局部块也能单独覆盖，同时长表格跨页时的阅读体验更稳定了。
+
+### Added
+
+- 新增文档级 `document_style` 默认样式入口，可统一控制标题、正文、列表、`summary_card` 和表格的基础样式。
+- 新增 `summary_card_defaults`，支持按整份文档统一控制摘要卡片标题对齐、强调和间距等表现。
+- 新增 `table_defaults`，支持按整份文档统一控制表头颜色、斑马纹、首列加粗、边框、对齐和 caption 强调样式。
+
+### Changed
+
+- Word 文档渲染现在会优先读取文档级默认样式，再回退到主题默认值。
+- 表格块和 `summary_card` 块现在支持在文档级默认样式之上继续做局部覆盖。
+- 分组表头表格与文档级样式系统已对齐，可以和默认表格样式一起工作。
+
+### Fixed
+
+- 修复长表格跨页时表头不重复显示的问题。
+- 修复长表格跨页时数据行容易被拆成上下两段的问题。
+- 修复表格分页标记在已有冲突值时不够明确的问题，现在会显式写入分页控制标志。
+
+## [v1.4.1] - 2026-03-28
+
+这一版主要把插件内部结构继续收顺，并补上了 Word 高级表格第一版。相对 `v1.4.0`，这次用户最容易直接感受到的是分组表头表格能力已经可用，复杂表格更接近正式报表，同时上传、导出和请求前装配这几条链路在内部也更清楚了。
+
+### Added
+
+- 新增 Word 表格分组表头能力，支持通过 `header_groups` 渲染两层表头。
+- 新增分组表头横向合并渲染能力，可在表头第一层按 `span` 合并单元格。
+
+### Changed
+
+- 重构插件内部 hook 与文件处理分层，请求前 hooks、导出后收尾、上传提示、Word 读取和生成文件交付都已拆到更清晰的 service 层。
+- `runtime_builder` 继续收敛为统一装配入口，`LLMRequestPolicy` 不再内部临时拼默认 request hooks。
+- Word 表格渲染顺序固定为 `caption -> header_groups -> headers -> rows`，更贴近报表型表格输出。
+- `header_groups` 的 schema、块模型、session store 和渲染器约束进一步对齐，错误信息也更具体。
+
+### Fixed
+
+- 修复上传缓冲和最近文本回补在慢文件场景下容易丢失用户指令的问题。
+- 修复导出后缺失文件提示可能暴露完整路径的问题，用户侧仅显示文件名。
+- 修复生成文件交付链对 `missing` 状态处理不明确的问题，创建文档、Office 转 PDF、PDF 转 Word 三条路径现在都有明确分支。
+- 修复 `LLMRequestPolicy` 中 request hook 装配入口分散的问题，避免默认 hooks 和显式 hooks 混用。
+- 修复空表占位场景会被误判为非法表格的问题，同时继续保留分组表头对列数的一致性校验。
+
+## [v1.4.0] - 2026-03-25
+
+这一版主要把 Word 生成细节、`.docx` 图片读取、上传缓冲链和导出稳定性继续往前推了一大步。相对 `v1.3.1`，这次更偏向能力补强和边界收口，日常使用时会更容易感受到读取更稳、生成更完整、上传文件后更容易接住用户指令。
+
+### Added
+
+- 新增 Word 段落内联富文本支持，复杂正文样式和 rich runs 渲染能力更完整。
+- 新增 `.docx` 嵌入图片读取能力，支持在读取 Word 时识别文档中的图片内容。
+- 新增 `enable_docx_image_review` 配置项，可决定是否在读取 `.docx` 时将嵌入图片注入模型上下文。
+- 新增 `max_inline_docx_image_mb` 与 `max_inline_docx_image_count` 配置项，用于限制 Word 图片注入大小和数量。
+- 新增多项服务层回归测试，覆盖 `.doc` 兼容、`.docx` 图片路径、图片提取失败、依赖缺失保护、上传缓冲回补等场景。
+
+### Changed
+
+- 重构 Word 内容格式化链路，统一 `ExtractedWordContent` 的字符串格式化逻辑，减少重复实现。
+- 重构 Word 表格渲染结构，拆分表格渲染逻辑并补强长表头归一化处理。
+- 优化文件上传后的提示和工具选择引导，减少模型猜测文件名和误用工具的情况。
+- 优化上传缓冲与最近文本回补逻辑，覆盖“先发一句话再传文件”的常见场景。
+- 关闭图片理解时，`.docx` 读取会按纯文本路径执行，不再进行不必要的图片落盘和占位输出。
+- README 与配置说明同步更新，补齐 Word 图片处理、Windows 下 Office 转 PDF 依赖、文件截断行为等说明。
+
+### Fixed
+
+- 修复 Word 段落 rich runs 与普通文本渲染不一致的问题。
+- 修复若干 Word 导出、表格渲染和导出管线边界问题，提升复杂文档生成稳定性。
+- 修复 `.docx` 图片路径可能暴露绝对路径的问题，工作区外图片会回退为文件名展示。
+- 修复 Word 提取中误读 `delText`、`instrText` 等隐藏内容的问题。
+- 修复 `read_file` 生成器类型标注与真实返回值不一致的问题。
+- 修复纯图片型 Word 文档在关闭图片理解后可能无可读返回的问题。
+- 修复上传缓冲中空白文本挡住最近文本回补的问题，并对齐相关 TTL 测试断言。
+- 修复多项 PR review 提出的边界问题，包括 `.doc` 旧格式回退、图片跳过原因对齐、docx 依赖保护等细节。
+
+## [v1.3.1] - 2026-03-19
+
+这一轮更新主要是把插件入口进一步收敛成薄编排层，把运行时、策略和文件处理职责系统化地下沉到 `services/`，同时补齐回归测试，并更新项目图示以匹配当前实现。
+
+### Added
+
+- 新增 `services/` 运行时服务层，补齐 `runtime_builder`、访问策略、LLM 请求策略、上传会话、消息入口、工作区、文件工具、交付发送、命令处理、错误钩子等服务模块。
+- 新增 `tests/test_office_assistant_services.py`，集中覆盖 service 层行为和重构后的关键回归路径。
+
+### Changed
+
+- `main.py` 进一步收敛为薄入口层，原先堆在入口中的编排、策略和文件处理逻辑改为委托给 `services/`。
+- 复杂 Word 工作流继续保持 `create_document -> add_blocks -> finalize_document -> export_document` 四步公开 contract，不重新放大工具面。
+- 上传文件场景的引导、recent text 缓存和工具调用顺序约束进一步收紧，减少先建文档再读文件或乱跳工具的情况。
+- 系统提示和相关工具说明调整为更短的中文版本，降低中英混杂提示泄漏到用户侧的概率。
+- 更新项目架构图和贡献流程图，使文档展示与当前 `main.py + services/ + core` 分层保持一致。
+
+### Fixed
+
+- 终止型文件工具在成功交付结果后会直接结束 tool loop，避免模型在导出或发文件后继续重复调用其他工具。
+
+## [v1.3.0] - 2026-03-17
+
+这一版主要把复杂 Word 的生成方式改成了分步工作流，同时把相关模块拆开，补上了测试，也顺手把一些实现细节理顺了。
+
+### Added
+
+- 增加复杂 Word 四步工具链：`create_document -> add_blocks -> finalize_document -> export_document`。
+- 增加统一块模型，`add_blocks` 可按顺序追加 `heading`、`paragraph`、`list`、`table`、`summary_card`、`page_break`、`group`、`columns` 八类内容块。
+- 增加文档会话存储 `DocumentSessionStore`，支持草稿创建、块追加、定稿、导出和导出状态管理。
+- 增加 `document_core/`，把文档模型、Word 渲染器和卡片宏单独拆出来。
+- 增加 Word 主题和样式参数，支持 `business_report`、`project_review`、`executive_brief` 三套主题，以及表格模板、密度、强调色等配置。
+- 增加 MCP 文档工具层和 Agent 工具层，复杂 Word 工作流可以通过统一协议暴露给上层调用。
+- 增加针对文档工具链、`before_llm_chat` 工具注入逻辑、Office 生成器兼容路径的专项测试。
+
+### Changed
+
+- 原先分散的 Word 工具调用方式收敛成四步链路，`add_heading`、`add_paragraph`、`add_table`、`add_summary_card` 等能力统一归入 `add_blocks`。
+- `before_llm_chat` 会按权限和上下文动态注入文档工具、补系统提示，并在插件实际生效时自动隐藏执行类工具。
+- `create_office_file` 还保留，但已经标记为 deprecated；复杂 Word 场景改为优先走四步工具链，简单一次性输出继续兼容旧入口。
+- `office_generator.py` 现在优先走新的 `DocumentModel + WordDocumentBuilder` 路径，失败时再回退旧版生成逻辑。
+- 项目目录从偏扁平调整为分层结构，新增 `agent_tools/`、`document_core/`、`mcp_server/`、`tests/` 等目录。
+- `README.md`、`CHANGELOG.md` 和复杂 Word 相关说明同步重写，文档表述与新工具链保持一致。
+
+### Improved
+
+- 调整复杂 Word 导出路径与沙箱路径处理逻辑，减少导出后文件不可访问或图片路径异常的情况。
+- 调整摘要卡片宏展开逻辑，避免卡片内容结构异常。
+- 提高文档块输入的容错性，遇到无效块时不容易把整条链路带崩。
+- 优化文件消息与后续文本消息的衔接处理，改善“先发文件再发指令”的识别稳定性。
+- 调整事件处理优先级，减少插件冲突和文件拦截时序问题。
+
+### Notes
+
+- `create_office_file` 目前仍可用于简单 Word/Excel/PPT 生成，复杂 Word 场景建议改走四步工具链。
+
+## [v1.2.4] - 2026-02-19
+
+### Added
+
+- 新增报错移动到指定会话功能，便于统一处理错误信息，提升用户体验（此功能需要框架版本到v4.17.5以上）。
+
+## [v1.2.3] - 2026-02-14
+
+### Fixed
+
+- 修复LLM对话被意外禁用的问题，保持正常的 LLM 对话功能可用
+
+## [v1.2.2] - 2026-02-10
+
+### Fixed
+
+- 修复上传文件名路径穿越风险：上传时仅使用 basename 并进行路径校验，避免越界写入。
+- 补充 PDF -> Excel 依赖声明：新增 `pandas` 与 `tabula-py`（可选，需 Java）。
+
+## [v1.2.1] - 2026-02-04
+
+### Changed
+
+- 重构 PDF 转换器中的 COM 资源管理，统一使用 `com_application`。
+- 优化配置预加载与条件逻辑，减少重复读取配置。
+- 代码格式化与 import 顺序整理。
+
+## [v1.2.0] - 2026-01-13
+
+### Added
+
+- 新增文件预览图生成器。
+- 增加预览图相关配置项。
+- 集成 PDF 文本提取能力。
+
+### Changed
+
+- 更新 README 文档。
+
+### Fixed
+
+- 修复 `docx2pdf` 的 COM 初始化问题。
+
+## [v1.1.2] - 2026-01-06
+
+### Added
+
+- 增加旧格式 Office 跨平台支持（`.doc` / `.xls` / `.ppt` 相关处理增强）。
+- 增补依赖与工具函数完善。
+
+### Changed
+
+- 完善依赖安装说明与 README。
+
+## [v1.1.1] - 2026-01-04
+
+### Changed
+
+- 引入 `requirements.txt`，简化依赖安装。
+- 代码风格与 import 顺序整理。
+
+### Fixed
+
+- 优化文件类型检测，不支持格式不再触发插件读取流程。
+
+## [v1.1.0] - 2026-01-03
+
+### Added
+
+- 新增 PDF 转换能力（Office <-> PDF 的基础支持）。
+- 新增 PDF 转换配置项。
+- 增强错误信息安全处理与文件名清理逻辑。
+
+### Changed
+
+- 统一线程池与部分模块结构优化。
+
+## [v1.0.0] - 2025-12-30
+
+### Added
+
+- 首个稳定版本发布。
+- 提供 Office 文件读取与生成基础能力。
+- 提供消息缓冲与权限控制基础机制。
+
+---
+
+注：`Unreleased` 记录的是已进入仓库但尚未打 tag 的变更。

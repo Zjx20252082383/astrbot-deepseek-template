@@ -1,0 +1,19 @@
+name: astrbot_plugin_uapi
+display_name: Many APIs (UAPI)
+short_desc: 封装 uapis.cn 100+ 免费 API，支持指令调用和 LLM Tool 调用
+desc: |
+  本插件封装了 uapis.cn 平台提供的 100+ 免费 API 接口，
+  涵盖天气查询、IP定位、翻译、热榜、二维码生成、OCR识别、
+  Minecraft查询、B站信息、GitHub查询、文本处理、图片处理等多种功能。
+  
+  支持两种使用方式：
+  1. 指令调用：通过 /uapi 指令直接调用任意 API
+  2. LLM Tool：将全部可用 API（~90+个）注册为 LLM 可调用的 Function Tool
+author: ナヒーダ
+version: 2.0.1
+support_platforms:
+  - aiocqhttp
+  - telegram
+  - wecom
+  - discord
+  - qq_official

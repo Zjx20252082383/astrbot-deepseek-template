@@ -1,0 +1,5 @@
+name: astrbot_plugin_dafeiyu
+desc: 给大肥鱼扩展权限：发QQ空间说说、修改个性签名、戳一戳。仅主人可用。
+version: v1.0.0
+author: zjx
+repo: local

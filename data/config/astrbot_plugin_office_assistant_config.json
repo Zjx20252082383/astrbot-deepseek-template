@@ -1,0 +1,49 @@
+﻿{
+    "feature_settings": {
+        "enable_office_files": true,
+        "enable_pdf_conversion": true
+    },
+    "trigger_settings": {
+        "enable_features_in_group": false,
+        "require_at_in_group": true,
+        "auto_block_execution_tools": true,
+        "allow_local_excel_script": false,
+        "reply_to_user": true
+    },
+    "permission_settings": {
+        "allow_all_users": false,
+        "whitelist_users": []
+    },
+    "file_settings": {
+        "max_file_size_mb": 20,
+        "auto_delete_files": true
+    },
+    "upload_session_settings": {
+        "message_buffer_seconds": 4,
+        "image_llm_delay_seconds": 3,
+        "upload_session_ttl_seconds": 600,
+        "recent_text_ttl_seconds": 20
+    },
+    "read_settings": {
+        "allow_external_input_files": false,
+        "max_excel_preview_rows": 2000,
+        "max_excel_preview_chars": 200000,
+        "max_excel_preview_sheets": 0,
+        "enable_docx_image_review": true,
+        "max_inline_docx_image_mb": 2,
+        "max_inline_docx_image_count": 3
+    },
+    "preview_settings": {
+        "enable": true,
+        "dpi": 150
+    },
+    "word_style_settings": {
+        "default_font_name": "",
+        "default_heading_font_name": "",
+        "default_table_font_name": "",
+        "default_code_font_name": ""
+    },
+    "debug_settings": {
+        "debug_error_hook_target_session": ""
+    }
+}

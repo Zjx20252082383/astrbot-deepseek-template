@@ -1,0 +1,2 @@
+aiohttp>=3.9,<4
+qqmusic-api>=0.8,<1

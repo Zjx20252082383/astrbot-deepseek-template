@@ -1,0 +1,572 @@
+import importlib
+import tempfile
+from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from types import SimpleNamespace
+
+from astrbot.api import logger
+from astrbot.api.star import StarTools
+
+from ..agent_tools import build_document_toolset
+from ..agent_tools.ownership import owner_from_context, require_draft_owner
+
+# workbook toolset may be introduced incrementally
+try:
+    from ..agent_tools import build_workbook_toolset
+except ImportError:  # pragma: no cover
+    build_workbook_toolset = None
+from ..app.runtime import (
+    AdminUsersResolver,
+    FileProcessingServices,
+    PluginRuntimeBundle,
+    RequestPipelineServices,
+)
+from ..app.settings import PluginSettings, load_plugin_settings
+from ..constants import (
+    MSG_DOCUMENT_EXPORTED,
+    OFFICE_LIBS,
+)
+from ..domain.document.render_backends import DocumentRenderBackendConfig
+from ..domain.export_artifacts import list_owned_export_paths
+from .message_buffer import MessageBuffer
+from .office_generator import OfficeGenerator
+from .pdf_converter import PDFConverter
+from .preview_generator import PreviewGenerator
+from .access_policy_service import AccessPolicyService
+from .command_service import CommandService
+from .delivery_service import DeliveryService
+from .error_hook_service import ErrorHookService
+from .file_delivery_service import FileDeliveryService
+from .file_read_service import FileReadService
+from .file_tool_service import FileToolService
+from .generated_file_delivery_service import GeneratedFileDeliveryService
+from .image_asset_service import ImageAssetService
+from .incoming_message_service import IncomingMessageService
+from .llm_request_policy import LLMRequestPolicy
+from .office_generate_service import OfficeGenerateService
+from .pdf_convert_service import PdfConvertService
+from .post_export_hook_service import PostExportHookService
+from .prompt_context_service import PromptContextService
+from .request_hook_service import RequestHookService
+from .upload_session_service import UploadSessionService
+from .word_read_service import WordReadService
+from .workspace_service import WorkspaceService
+
+
+def build_plugin_runtime(
+    *,
+    context,
+    config,
+    plugin_name: str,
+    handle_exported_document_tool,
+    extract_upload_source,
+    store_uploaded_file,
+) -> PluginRuntimeBundle:
+    settings = load_plugin_settings(config)
+    root_config = _resolve_root_config(context)
+    admin_users = _extract_admin_users(root_config)
+    get_admin_users = _build_admin_users_resolver(
+        context,
+        initial_admin_users=admin_users,
+    )
+    temp_dir, plugin_data_path = _prepare_workspace(
+        settings.auto_delete, plugin_name=plugin_name
+    )
+    executor = ThreadPoolExecutor(max_workers=4)
+    document_render_backend_config = _build_document_render_backend_config(settings)
+    default_document_style = _build_default_document_style(settings)
+    office_gen = OfficeGenerator(
+        plugin_data_path,
+        executor=executor,
+        render_backend_config=document_render_backend_config,
+        default_document_style=default_document_style,
+    )
+    pdf_converter = PDFConverter(plugin_data_path, executor=executor)
+    preview_gen = PreviewGenerator(dpi=settings.preview_dpi)
+    office_libs = _check_office_libs()
+
+    workspace_service = WorkspaceService(
+        plugin_data_path=plugin_data_path,
+        executor=executor,
+        office_libs=office_libs,
+        max_file_size=settings.max_file_size,
+        feature_settings=settings.feature_settings,
+    )
+    access_policy_service = AccessPolicyService(
+        whitelist_users=config.get("permission_settings", {}).get(
+            "whitelist_users", []
+        ),
+        admin_users=list(admin_users),
+        get_admin_users=get_admin_users,
+        allow_all_users=settings.allow_all_users,
+        enable_features_in_group=settings.enable_features_in_group,
+    )
+    upload_session_service = UploadSessionService(
+        context=context,
+        recent_text_ttl_seconds=settings.recent_text_ttl_seconds,
+        upload_session_ttl_seconds=settings.upload_session_ttl_seconds,
+        recent_text_max_entries=settings.recent_text_max_entries,
+        recent_text_cleanup_interval_seconds=settings.recent_text_cleanup_interval_seconds,
+        upload_session_cleanup_interval_seconds=settings.upload_session_cleanup_interval_seconds,
+        extract_upload_source=extract_upload_source,
+        store_uploaded_file=store_uploaded_file,
+        allow_external_input_files=settings.allow_external_input_files,
+    )
+    delivery_service = DeliveryService(
+        executor=executor,
+        preview_generator=preview_gen,
+        enable_preview=settings.enable_preview,
+        auto_delete=settings.auto_delete,
+        reply_to_user=settings.reply_to_user,
+    )
+    post_export_hook_service = PostExportHookService(
+        executor=executor,
+        preview_generator=preview_gen,
+        enable_preview=settings.enable_preview,
+        auto_delete=settings.auto_delete,
+        reply_to_user=settings.reply_to_user,
+        exported_message=MSG_DOCUMENT_EXPORTED,
+    )
+    image_asset_service = ImageAssetService(plugin_data_path=plugin_data_path)
+
+    def validate_document_image_ref(tool_context, ref: str) -> None:
+        event = getattr(getattr(tool_context, "context", None), "event", None)
+        if event is None:
+            return
+        session_key = upload_session_service.get_attachment_session_key(event)
+        image_asset_service.resolve_ref(ref, session_key=session_key)
+        active_refs = {
+            image["ref"]
+            for image in image_asset_service.list_active_images(session_key)
+        }
+        if active_refs and ref not in active_refs:
+            raise ValueError(
+                f"图片引用 {ref} 不在当前活动图片中。"
+                "请先使用 /img use 选择要用于本轮文档/PPT 的图片。"
+            )
+
+    document_toolset = build_document_toolset(
+        workspace_dir=plugin_data_path,
+        after_export=handle_exported_document_tool,
+        render_backend_config=document_render_backend_config,
+        default_document_style=default_document_style,
+        image_ref_validator=validate_document_image_ref,
+    )
+    workbook_toolset = _build_workbook_toolset(
+        workspace_dir=plugin_data_path,
+        after_export=handle_exported_document_tool,
+    )
+    _register_structured_tools(context, document_toolset, workbook_toolset)
+    workspace_service.set_exported_paths_lookup(
+        _build_exported_paths_lookup(workspace_dir=plugin_data_path)
+    )
+    request_pipeline_services = _build_request_pipeline_services(
+        astrbot_context=context,
+        settings=settings,
+        upload_session_service=upload_session_service,
+        access_policy_service=access_policy_service,
+        image_asset_service=image_asset_service,
+        document_toolset=document_toolset,
+        workbook_toolset=workbook_toolset,
+        extract_upload_source=extract_upload_source,
+        store_uploaded_file=store_uploaded_file,
+    )
+    file_processing_services = _build_file_processing_services(
+        astrbot_context=context,
+        settings=settings,
+        workspace_service=workspace_service,
+        delivery_service=delivery_service,
+        office_gen=office_gen,
+        pdf_converter=pdf_converter,
+        office_libs=office_libs,
+        access_policy_service=access_policy_service,
+    )
+    command_service = CommandService(
+        workspace_service=workspace_service,
+        pdf_converter=pdf_converter,
+        plugin_data_path=plugin_data_path,
+        auto_delete=settings.auto_delete,
+        allow_external_input_files=settings.allow_external_input_files,
+        enable_features_in_group=settings.enable_features_in_group,
+        auto_block_execution_tools=settings.auto_block_execution_tools,
+        allow_local_excel_script=settings.allow_local_excel_script,
+        reply_to_user=settings.reply_to_user,
+        upload_session_service=upload_session_service,
+        image_asset_service=image_asset_service,
+        is_group_feature_enabled=access_policy_service.is_group_feature_enabled,
+        is_all_users_allowed=access_policy_service.is_all_users_allowed,
+        check_permission=access_policy_service.check_permission,
+        group_feature_disabled_error=access_policy_service.group_feature_disabled_error,
+        node_renderer_entry=settings.js_renderer_entry,
+    )
+    error_hook_service = ErrorHookService(
+        context=context,
+        config=config,
+        plugin_name=plugin_name,
+    )
+    message_buffer = MessageBuffer(wait_seconds=settings.buffer_wait)
+    incoming_message_service = IncomingMessageService(
+        message_buffer=message_buffer,
+        remember_recent_text=upload_session_service.remember_recent_text,
+        is_group_feature_enabled=access_policy_service.is_group_feature_enabled,
+        cache_pending_image_resource=upload_session_service.cache_pending_image_resource,
+    )
+
+    return PluginRuntimeBundle(
+        settings=settings,
+        temp_dir=temp_dir,
+        plugin_data_path=plugin_data_path,
+        executor=executor,
+        office_gen=office_gen,
+        pdf_converter=pdf_converter,
+        preview_gen=preview_gen,
+        office_libs=office_libs,
+        workspace_service=workspace_service,
+        access_policy_service=access_policy_service,
+        upload_session_service=upload_session_service,
+        document_toolset=document_toolset,
+        workbook_toolset=workbook_toolset,
+        llm_request_policy=request_pipeline_services.llm_request_policy,
+        prompt_context_service=request_pipeline_services.prompt_context_service,
+        delivery_service=delivery_service,
+        generated_file_delivery_service=file_processing_services.generated_file_delivery_service,
+        file_delivery_service=file_processing_services.file_delivery_service,
+        word_read_service=file_processing_services.word_read_service,
+        file_read_service=file_processing_services.file_read_service,
+        office_generate_service=file_processing_services.office_generate_service,
+        pdf_convert_service=file_processing_services.pdf_convert_service,
+        post_export_hook_service=post_export_hook_service,
+        file_tool_service=file_processing_services.file_tool_service,
+        command_service=command_service,
+        error_hook_service=error_hook_service,
+        image_asset_service=image_asset_service,
+        message_buffer=message_buffer,
+        incoming_message_service=incoming_message_service,
+    )
+
+
+def _build_document_render_backend_config(
+    settings: PluginSettings,
+) -> DocumentRenderBackendConfig:
+    return DocumentRenderBackendConfig(
+        preferred_backend="node",
+        fallback_enabled=False,
+        ppt_preferred_backend="node",
+        excel_preferred_backend="python",
+        node_renderer_entry=settings.js_renderer_entry,
+    )
+
+
+def _build_default_document_style(settings: PluginSettings) -> dict[str, object]:
+    defaults: dict[str, object] = {}
+    if settings.default_word_font_name:
+        defaults["font_name"] = settings.default_word_font_name
+    if settings.default_word_heading_font_name:
+        defaults["heading_font_name"] = settings.default_word_heading_font_name
+    if settings.default_word_table_font_name:
+        defaults["table_font_name"] = settings.default_word_table_font_name
+    if settings.default_word_code_font_name:
+        defaults["code_font_name"] = settings.default_word_code_font_name
+    return defaults
+
+
+def _build_request_pipeline_services(
+    *,
+    astrbot_context,
+    settings: PluginSettings,
+    upload_session_service: UploadSessionService,
+    access_policy_service: AccessPolicyService,
+    image_asset_service: ImageAssetService,
+    document_toolset,
+    workbook_toolset,
+    extract_upload_source,
+    store_uploaded_file,
+) -> RequestPipelineServices:
+    prompt_context_service = PromptContextService(
+        allow_external_input_files=settings.allow_external_input_files
+    )
+
+    request_hook_service = RequestHookService(
+        astrbot_context=astrbot_context,
+        auto_block_execution_tools=settings.auto_block_execution_tools,
+        allow_local_excel_script=settings.allow_local_excel_script,
+        get_cached_upload_infos=upload_session_service.get_cached_upload_infos,
+        extract_upload_source=extract_upload_source,
+        store_uploaded_file=store_uploaded_file,
+        consume_session_notice_once=upload_session_service.consume_session_notice_once,
+        allow_external_input_files=settings.allow_external_input_files,
+        prompt_context_service=prompt_context_service,
+        lookup_document_summary_for_event=_build_document_summary_lookup(
+            document_toolset, require_owner=True
+        ),
+        lookup_workbook_summary_for_event=_build_workbook_summary_lookup(
+            workbook_toolset, require_owner=True
+        ),
+        get_session_images=lambda event: image_asset_service.list_active_images(
+            upload_session_service.get_attachment_session_key(event)
+        ),
+    )
+    llm_request_policy = LLMRequestPolicy(
+        document_toolset=document_toolset,
+        workbook_toolset=workbook_toolset,
+        tool_manager=(
+            astrbot_context.get_llm_tool_manager()
+            if callable(getattr(astrbot_context, "get_llm_tool_manager", None))
+            else None
+        ),
+        require_at_in_group=settings.require_at_in_group,
+        is_group_feature_enabled=access_policy_service.is_group_feature_enabled,
+        check_permission=access_policy_service.check_permission,
+        is_bot_mentioned=access_policy_service.is_bot_mentioned,
+        request_hook_service=request_hook_service,
+        prompt_context_service=prompt_context_service,
+    )
+    return RequestPipelineServices(
+        prompt_context_service=prompt_context_service,
+        request_hook_service=request_hook_service,
+        llm_request_policy=llm_request_policy,
+    )
+
+
+def _register_structured_tools(context, *toolsets) -> None:
+    add_tools = getattr(context, "add_llm_tools", None)
+    if callable(add_tools):
+        tools = [
+            tool
+            for toolset in toolsets
+            if toolset is not None
+            for tool in toolset.tools
+        ]
+        add_tools(*tools)
+
+
+def _build_exported_paths_lookup(*, workspace_dir):
+    def lookup(event):
+        try:
+            owner = owner_from_context(
+                SimpleNamespace(context=SimpleNamespace(event=event))
+            )
+        except ValueError:
+            return []
+        if owner is None:
+            return []
+        return list_owned_export_paths(workspace_dir, owner)
+
+    return lookup
+
+
+def _build_owned_summary_lookup(store, build_prompt_summary, require_method_name):
+    require_draft = getattr(store, require_method_name, None)
+    if not callable(require_draft):
+        return None
+
+    def lookup(identifier, event):
+        try:
+            draft = require_draft(identifier)
+            require_draft_owner(
+                draft, SimpleNamespace(context=SimpleNamespace(event=event))
+            )
+            return build_prompt_summary(identifier)
+        except (KeyError, ValueError):
+            return None
+
+    return lookup
+
+
+def _build_document_summary_lookup(document_toolset, *, require_owner=False):
+    document_store = getattr(document_toolset, "document_store", None)
+    build_prompt_summary = getattr(document_store, "build_prompt_summary", None)
+    if not callable(build_prompt_summary):
+        logger.warning(
+            "[文件管理] document_store.build_prompt_summary 不可用，文档跟进提示将退化为普通工具指南"
+        )
+        return None
+    if require_owner:
+        return _build_owned_summary_lookup(
+            document_store, build_prompt_summary, "require_document"
+        )
+    return build_prompt_summary
+
+
+def _build_workbook_toolset(*, workspace_dir: Path, after_export):
+    if build_workbook_toolset is None:
+        logger.info(
+            "[文件管理] build_workbook_toolset 不可用，跳过 workbook 原语工具挂载"
+        )
+        return None
+    try:
+        return build_workbook_toolset(
+            workspace_dir=workspace_dir,
+            after_export=after_export,
+        )
+    except ImportError as exc:
+        logger.warning(f"[文件管理] workbook 原语工具依赖不可用，跳过挂载: {exc}")
+        return None
+
+
+def _build_workbook_summary_lookup(workbook_toolset, *, require_owner=False):
+    if workbook_toolset is None:
+        return None
+    workbook_store = getattr(workbook_toolset, "workbook_store", None)
+    build_prompt_summary = getattr(workbook_store, "build_prompt_summary", None)
+    if not callable(build_prompt_summary):
+        logger.warning(
+            "[文件管理] workbook_store.build_prompt_summary 不可用，工作簿跟进提示将退化为普通工具指南"
+        )
+        return None
+    if require_owner:
+        return _build_owned_summary_lookup(
+            workbook_store, build_prompt_summary, "require_workbook"
+        )
+    return build_prompt_summary
+
+
+def _build_file_processing_services(
+    *,
+    astrbot_context,
+    settings: PluginSettings,
+    workspace_service: WorkspaceService,
+    delivery_service: DeliveryService,
+    office_gen: OfficeGenerator,
+    pdf_converter: PDFConverter,
+    office_libs: dict,
+    access_policy_service: AccessPolicyService,
+) -> FileProcessingServices:
+    generated_file_delivery_service = GeneratedFileDeliveryService(
+        workspace_service=workspace_service,
+        delivery_service=delivery_service,
+    )
+    file_delivery_service = FileDeliveryService(
+        generated_file_delivery_service=generated_file_delivery_service,
+    )
+    word_read_service = WordReadService(
+        workspace_service=workspace_service,
+        enable_docx_image_review=settings.enable_docx_image_review,
+        max_inline_docx_image_bytes=settings.max_inline_docx_image_bytes,
+        max_inline_docx_image_count=settings.max_inline_docx_image_count,
+    )
+    file_read_service = FileReadService(
+        workspace_service=workspace_service,
+        word_read_service=word_read_service,
+        allow_external_input_files=settings.allow_external_input_files,
+        is_group_feature_enabled=access_policy_service.is_group_feature_enabled,
+        check_permission=access_policy_service.check_permission,
+        group_feature_disabled_error=access_policy_service.group_feature_disabled_error,
+        max_excel_preview_rows=settings.max_excel_preview_rows,
+        max_excel_preview_chars=settings.max_excel_preview_chars,
+        max_excel_preview_sheets=settings.max_excel_preview_sheets,
+    )
+    office_generate_service = OfficeGenerateService(
+        workspace_service=workspace_service,
+        office_generator=office_gen,
+        file_delivery_service=file_delivery_service,
+        office_libs=office_libs,
+        is_group_feature_enabled=access_policy_service.is_group_feature_enabled,
+        check_permission=access_policy_service.check_permission,
+        group_feature_disabled_error=access_policy_service.group_feature_disabled_error,
+    )
+    pdf_convert_service = PdfConvertService(
+        workspace_service=workspace_service,
+        pdf_converter=pdf_converter,
+        file_delivery_service=file_delivery_service,
+        allow_external_input_files=settings.allow_external_input_files,
+        is_group_feature_enabled=access_policy_service.is_group_feature_enabled,
+        check_permission=access_policy_service.check_permission,
+        group_feature_disabled_error=access_policy_service.group_feature_disabled_error,
+    )
+    file_tool_service = FileToolService(
+        astrbot_context=astrbot_context,
+        auto_block_execution_tools=settings.auto_block_execution_tools,
+        allow_local_excel_script=settings.allow_local_excel_script,
+        workspace_service=workspace_service,
+        office_generator=office_gen,
+        pdf_converter=pdf_converter,
+        delivery_service=delivery_service,
+        generated_file_delivery_service=generated_file_delivery_service,
+        word_read_service=word_read_service,
+        office_libs=office_libs,
+        allow_external_input_files=settings.allow_external_input_files,
+        enable_docx_image_review=settings.enable_docx_image_review,
+        max_inline_docx_image_bytes=settings.max_inline_docx_image_bytes,
+        max_inline_docx_image_count=settings.max_inline_docx_image_count,
+        max_excel_preview_rows=settings.max_excel_preview_rows,
+        max_excel_preview_chars=settings.max_excel_preview_chars,
+        max_excel_preview_sheets=settings.max_excel_preview_sheets,
+        is_group_feature_enabled=access_policy_service.is_group_feature_enabled,
+        check_permission=access_policy_service.check_permission,
+        group_feature_disabled_error=access_policy_service.group_feature_disabled_error,
+        file_read_service=file_read_service,
+        office_generate_service=office_generate_service,
+        pdf_convert_service=pdf_convert_service,
+    )
+    return FileProcessingServices(
+        generated_file_delivery_service=generated_file_delivery_service,
+        file_delivery_service=file_delivery_service,
+        word_read_service=word_read_service,
+        file_read_service=file_read_service,
+        office_generate_service=office_generate_service,
+        pdf_convert_service=pdf_convert_service,
+        file_tool_service=file_tool_service,
+    )
+
+
+def _resolve_root_config(context) -> dict:
+    get_config = getattr(context, "get_config", None)
+    if callable(get_config):
+        config = get_config()
+        if isinstance(config, dict):
+            return config
+
+    legacy_config = getattr(context, "astrbot_config", None)
+    if isinstance(legacy_config, dict):
+        return legacy_config
+
+    return {}
+
+
+def _extract_admin_users(root_config: dict) -> set[str]:
+    if not isinstance(root_config, dict):
+        return set()
+
+    raw_admins = root_config.get("admins_id", [])
+    if raw_admins is None:
+        return set()
+    if isinstance(raw_admins, (str, bytes)):
+        return {str(raw_admins)}
+    if isinstance(raw_admins, Iterable):
+        return {str(admin_id) for admin_id in raw_admins}
+    return {str(raw_admins)}
+
+
+def _build_admin_users_resolver(context, *, initial_admin_users: set[str]):
+    return AdminUsersResolver(
+        context=context,
+        admin_users=set(initial_admin_users),
+    )
+
+
+def _prepare_workspace(
+    auto_delete: bool,
+    *,
+    plugin_name: str,
+) -> tuple[tempfile.TemporaryDirectory | None, Path]:
+    if auto_delete:
+        temp_dir = tempfile.TemporaryDirectory(prefix="astrbot_file_")
+        return temp_dir, Path(temp_dir.name)
+
+    plugin_data_path = StarTools.get_data_dir(plugin_name) / "files"
+    plugin_data_path.mkdir(parents=True, exist_ok=True)
+    return None, plugin_data_path
+
+
+def _check_office_libs() -> dict:
+    libs = {}
+    for office_type, (module_name, package_name) in OFFICE_LIBS.items():
+        try:
+            libs[module_name] = importlib.import_module(module_name)
+            logger.debug(f"[文件管理] {package_name} 已加载")
+        except ImportError:
+            libs[module_name] = None
+            logger.warning(f"[文件管理] {package_name} 未安装")
+    return libs

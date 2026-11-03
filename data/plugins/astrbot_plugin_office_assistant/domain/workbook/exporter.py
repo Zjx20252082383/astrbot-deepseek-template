@@ -1,0 +1,76 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import column_index_from_string, get_column_letter
+
+from .models import WorkbookModel
+
+HEADER_FONT = Font(bold=True)
+HEADER_FILL = PatternFill(fill_type="solid", fgColor="D9D9D9")
+DEFAULT_ALIGNMENT = Alignment(horizontal="left", vertical="center")
+
+
+def export_workbook_to_xlsx(workbook: WorkbookModel, output_path: Path) -> Path:
+    workbook_writer = Workbook()
+    default_sheet = workbook_writer.active
+
+    if workbook.worksheets:
+        workbook_writer.remove(default_sheet)
+        for worksheet_model in workbook.worksheets:
+            worksheet = workbook_writer.create_sheet(title=worksheet_model.name)
+            header = worksheet_model.header_row or 1
+            _write_worksheet_rows(worksheet, worksheet_model.rows, header)
+            _apply_worksheet_options(worksheet, worksheet_model, header)
+    else:
+        default_sheet.title = "Sheet1"
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    workbook_writer.save(output_path)
+    return output_path
+
+
+def _write_worksheet_rows(
+    worksheet, rows: list[list[object]], header_row: int = 1
+) -> None:
+    for row_index, row in enumerate(rows, start=1):
+        for column_index, value in enumerate(row, start=1):
+            cell = worksheet.cell(row=row_index, column=column_index, value=value)
+            cell.alignment = DEFAULT_ALIGNMENT
+            if row_index == header_row:
+                cell.font = HEADER_FONT
+                cell.fill = HEADER_FILL
+
+
+def _apply_worksheet_options(worksheet, worksheet_model, header_row: int = 1) -> None:
+    options = getattr(worksheet_model, "options", None)
+    if options is None:
+        return
+
+    if options.freeze_panes:
+        worksheet.freeze_panes = options.freeze_panes
+
+    for column_letter, width in options.column_widths.items():
+        worksheet.column_dimensions[column_letter].width = width
+
+    if options.number_formats:
+        formats = {
+            column_index_from_string(k): v for k, v in options.number_formats.items()
+        }
+        for row_index, row_data in enumerate(worksheet_model.rows, start=1):
+            if row_index != header_row:
+                for col_idx, fmt in formats.items():
+                    if col_idx <= len(row_data):
+                        worksheet.cell(
+                            row=row_index, column=col_idx
+                        ).number_format = fmt
+
+    if options.autofilter and worksheet_model.rows:
+        last_column = get_column_letter(worksheet.max_column)
+        last_row = max(header_row, worksheet.max_row)
+        worksheet.auto_filter.ref = f"A{header_row}:{last_column}{last_row}"
+
+
+__all__ = ["export_workbook_to_xlsx"]

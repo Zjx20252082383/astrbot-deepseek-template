@@ -1,0 +1,1 @@
+import{a as e}from"./rolldown-runtime-CNC7AqOf.js";import{dt as t,lt as n}from"./api-CBg-YqKK.js";var r=e(t(),1),i=n(),a=(0,r.createContext)(null);function o({value:e,children:t}){return(0,i.jsx)(a.Provider,{value:e,children:t})}function s(){let e=(0,r.useContext)(a);if(!e)throw Error(`useAppState must be used inside <AppStateProvider>`);return e}export{s as n,o as t};

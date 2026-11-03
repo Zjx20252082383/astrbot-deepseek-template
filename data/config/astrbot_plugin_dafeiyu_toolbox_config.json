@@ -1,0 +1,146 @@
+﻿{
+    "complain": {
+        "basic": {
+            "owner_umo": "",
+            "owner_qq": "",
+            "owner_title": "主人",
+            "guardians": [],
+            "owner_session": "",
+            "enabled": true,
+            "in_chat_hint": true
+        },
+        "limit": {
+            "cooldown_seconds": 600,
+            "daily_limit": 5,
+            "max_length": 80,
+            "include_source": true,
+            "escalate_repeat": true
+        },
+        "relay": {
+            "relay_enabled": true,
+            "relay_cooldown_seconds": 15,
+            "relay_daily_limit": 20
+        }
+    },
+    "usage": {
+        "connection": {
+            "api_key": "",
+            "api_base": "https://api.deepseek.com",
+            "timeout_seconds": 15
+        },
+        "access": {
+            "enabled": true,
+            "cmd_admin_only": true,
+            "tool_public": true,
+            "cache_seconds": 60,
+            "owner_session": "",
+            "extra_admins": []
+        },
+        "alert": {
+            "alert_enabled": true,
+            "alert_use_llm": true,
+            "alert_text": "",
+            "alert_threshold": 5,
+            "alert_umo": "",
+            "alert_qq": "",
+            "check_interval_hours": 6
+        },
+        "stats": {
+            "token_price": 4.0,
+            "keep_days": 90
+        },
+        "persona": {
+            "persona_hint": ""
+        }
+    },
+    "voice": {
+        "listen": {
+            "listen_enabled": false,
+            "listen_hint": "",
+            "mimo_stt_api_key": "",
+            "mimo_stt_model": "mimo-v2.5-asr",
+            "mimo_stt_language": "zh"
+        },
+        "speak": {
+            "speak_enabled": true,
+            "tts_backend": "mimo",
+            "breeze": {
+                "breeze_api_key": "",
+                "breeze_voice_id": "",
+                "breeze_model": "breeze-tts-2"
+            },
+            "mimo_tts": {
+                "mimo_tts_api_key": "",
+                "mimo_tts_model": "mimo-v2.5-tts",
+                "mimo_tts_voice": "mimo_default"
+            },
+            "tts_instructions": "",
+            "speak_prob_percent": 0,
+            "speak_max_chars": 300
+        },
+        "sing": {
+            "sing_enabled": true,
+            "sing_style": "pop"
+        },
+        "misc": {
+            "timeout_seconds": 60
+        }
+    },
+    "toolbox": {
+        "basic": {
+            "owner_session": "",
+            "extra_admins": [],
+            "admin_only": true
+        },
+        "signature": {
+            "daily_self_limit": 2,
+            "daily_owner_limit": 10,
+            "max_length": 40,
+            "self_change_hint": true
+        },
+        "feed": {
+            "self_feed_hint": true,
+            "feed_hint_chance": 25,
+            "daily_feed_limit": 2,
+            "max_list": 10,
+            "max_images": 9
+        },
+        "llm": {
+            "post_provider_id": "",
+            "post_prompt": "写一条你此刻的 QQ 空间说说，用你自己的口吻，40 字以内，可以带一点情绪、吐槽或感慨。"
+        },
+        "card": {
+            "like_times": 10,
+            "daily_card_like_limit": 30
+        },
+        "risk": {
+            "cooldown_seconds": 15,
+            "daily_like_limit": 20,
+            "daily_comment_limit": 10,
+            "daily_delete_limit": 5
+        },
+        "network": {
+            "qzone_domain": "user.qzone.qq.com",
+            "cookie_ttl": 600,
+            "timeout": 20
+        }
+    },
+    "memory": {
+        "basic": {
+            "enabled": false,
+            "inject_enabled": false,
+            "auto_extract": false,
+            "keyword_gate": true
+        },
+        "extract": {
+            "extract_every_n_messages": 6,
+            "extract_min_interval_minutes": 30,
+            "extract_provider_id": "",
+            "fact_max_chars": 40
+        },
+        "inject": {
+            "inject_top_n": 6,
+            "max_facts_per_user": 40
+        }
+    }
+}

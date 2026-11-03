@@ -1,0 +1,13 @@
+﻿{
+  "service_url": "http://127.0.0.1:18888",
+  "api_token": "",
+  "timeout_seconds": 3600,
+  "default_model": "大肥鱼",
+  "index_rate": 0.85,
+  "rms_mix_rate": 0.25,
+  "protect": 0.25,
+  "vocal_gain": 1.2,
+  "instrumental_gain": 1.0,
+  "send_as_record": true,
+  "output_retention_hours": 24
+}

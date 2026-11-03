@@ -1,0 +1,98 @@
+from __future__ import annotations
+
+from collections.abc import Callable, Sequence
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from astrbot.core.agent.tool import ToolSet
+
+from ..domain.document.hooks import AfterExportHook, BeforeExportHook
+from ..domain.document.render_backends import DocumentRenderBackendConfig
+from .registry import (
+    AfterExportCallback,
+    AstrBotDocumentTool,
+    AstrBotWorkbookTool,
+    WorkbookAfterExportCallback,
+    build_document_store,
+    build_workbook_store,
+    get_document_tool_specs,
+    get_workbook_tool_specs,
+)
+
+if TYPE_CHECKING:
+    from ..domain.document.session_store import DocumentSessionStore
+    from ..domain.workbook.session_store import WorkbookSessionStore
+
+
+class DocumentToolSet(ToolSet):
+    document_store: DocumentSessionStore
+
+    def __init__(
+        self,
+        tools: Sequence[AstrBotDocumentTool],
+        *,
+        document_store: DocumentSessionStore,
+    ) -> None:
+        super().__init__(list(tools))
+        self.document_store = document_store
+
+
+class WorkbookToolSet(ToolSet):
+    workbook_store: WorkbookSessionStore
+
+    def __init__(
+        self,
+        tools: Sequence[AstrBotWorkbookTool],
+        *,
+        workbook_store: WorkbookSessionStore,
+    ) -> None:
+        super().__init__(list(tools))
+        self.workbook_store = workbook_store
+
+
+def build_document_toolset_from_registry(
+    workspace_dir: Path | None = None,
+    after_export: AfterExportCallback | None = None,
+    *,
+    before_export_hooks: list[BeforeExportHook] | None = None,
+    after_export_hooks: list[AfterExportHook] | None = None,
+    render_backend_config: DocumentRenderBackendConfig | None = None,
+    default_document_style: dict[str, object] | None = None,
+    image_ref_validator: Callable[[object, str], None] | None = None,
+) -> DocumentToolSet:
+    store = build_document_store(
+        workspace_dir=workspace_dir,
+        render_backend_config=render_backend_config,
+        default_document_style=default_document_style,
+    )
+    resolved_before_export_hooks = before_export_hooks or []
+    resolved_after_export_hooks = after_export_hooks or []
+    tools = [
+        spec.astrbot_factory(
+            store,
+            resolved_before_export_hooks,
+            resolved_after_export_hooks,
+            after_export,
+        )
+        for spec in get_document_tool_specs()
+    ]
+    if image_ref_validator is not None:
+        for tool in tools:
+            if hasattr(tool, "image_ref_validator"):
+                tool.image_ref_validator = image_ref_validator
+    return DocumentToolSet(tools, document_store=store)
+
+
+def build_workbook_toolset_from_registry(
+    workspace_dir: Path | None = None,
+    after_export: WorkbookAfterExportCallback | None = None,
+) -> WorkbookToolSet:
+    store = build_workbook_store(workspace_dir=workspace_dir)
+    tools = [
+        spec.astrbot_factory(
+            store,
+            after_export,
+        )
+        for spec in get_workbook_tool_specs()
+    ]
+    return WorkbookToolSet(tools, workbook_store=store)

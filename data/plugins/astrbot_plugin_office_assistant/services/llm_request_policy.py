@@ -1,0 +1,351 @@
+import re
+from collections.abc import Callable
+from dataclasses import dataclass
+
+from astrbot.api import logger
+from astrbot.api.event import AstrMessageEvent
+from astrbot.core.platform.message_type import MessageType
+from astrbot.core.provider.entities import ProviderRequest
+
+from ..constants import (
+    DOC_COMMAND_TRIGGER_EVENT_KEY,
+    EXECUTION_TOOLS,
+    EXPLICIT_FILE_TOOL_EVENT_KEY,
+    FILE_TOOLS,
+)
+from ..internal_hooks import (
+    NoticeBuildContext,
+    NoticeBuildHook,
+    ToolExposureContext,
+    ToolExposureHook,
+    run_notice_hooks,
+    run_tool_exposure_hooks,
+)
+from .prompt_context_service import PromptContextService
+from .request_hook_service import RequestHookService
+
+
+class LLMRequestPolicy:
+    _NEGATIVE_TOOL_PREFIX_RE = re.compile(
+        r"(?:不要|别|勿|不用|无需|do\s+not|don't|not)\s*(?:调用|使用|call|use|invoke)?\s*$",
+        flags=re.IGNORECASE,
+    )
+    _BUFFERED_USER_INSTRUCTION_RE = re.compile(
+        r"\[用户指令\]\s*(?P<instruction>.*?)(?:\n\s*\[|\Z)",
+        flags=re.DOTALL,
+    )
+
+    @dataclass(slots=True)
+    class ExposureDecision:
+        explicit_tool_name: str | None
+        has_permission: bool
+        can_process_upload: bool
+        should_expose: bool
+
+    def __init__(
+        self,
+        *,
+        document_toolset,
+        workbook_toolset=None,
+        tool_manager=None,
+        require_at_in_group: bool,
+        is_group_feature_enabled: Callable[[AstrMessageEvent], bool],
+        check_permission: Callable[[AstrMessageEvent], bool],
+        is_bot_mentioned: Callable[[AstrMessageEvent], bool],
+        request_hook_service: RequestHookService | None = None,
+        prompt_context_service: PromptContextService | None = None,
+        notice_hooks: list[NoticeBuildHook] | None = None,
+        tool_exposure_hooks: list[ToolExposureHook] | None = None,
+    ) -> None:
+        self._document_toolset = document_toolset
+        self._workbook_toolset = workbook_toolset
+        self._tool_manager = tool_manager
+        self._structured_toolsets = [
+            toolset
+            for toolset in (document_toolset, workbook_toolset)
+            if toolset is not None
+        ]
+        self._require_at_in_group = require_at_in_group
+        self._is_group_feature_enabled = is_group_feature_enabled
+        self._check_permission = check_permission
+        self._is_bot_mentioned = is_bot_mentioned
+        self._prompt_context_service = (
+            prompt_context_service
+            or getattr(request_hook_service, "prompt_context_service", None)
+            or PromptContextService(allow_external_input_files=False)
+        )
+        explicit_hooks_provided = (
+            notice_hooks is not None or tool_exposure_hooks is not None
+        )
+        if explicit_hooks_provided and (
+            notice_hooks is None or tool_exposure_hooks is None
+        ):
+            raise ValueError(
+                "notice_hooks and tool_exposure_hooks must be provided together"
+            )
+        if not explicit_hooks_provided and request_hook_service is None:
+            raise ValueError(
+                "request_hook_service is required when hooks are not provided"
+            )
+        if explicit_hooks_provided:
+            self._notice_hooks = notice_hooks
+            self._tool_exposure_hooks = tool_exposure_hooks
+            self._request_hook_service = None
+        else:
+            self._notice_hooks = None
+            self._tool_exposure_hooks = None
+            self._request_hook_service = request_hook_service
+
+    def _detect_explicit_file_tool(self, text: str) -> str | None:
+        if not text:
+            return None
+
+        explicit_matches: set[str] = set()
+        tool_invocation_prefix = (
+            r"(?:调用|使用|请求(?:调用|使用)?|请(?!问)(?:调用|使用)?|"
+            r"\b(?:call|use|invoke)\b|\bplease\s+(?:call|use|invoke)\b)"
+        )
+        for tool_name in sorted(FILE_TOOLS, key=len, reverse=True):
+            patterns = (
+                rf"(?P<tool>{tool_invocation_prefix}\s*`?{re.escape(tool_name)}`?)",
+                rf"(?P<tool>`{re.escape(tool_name)}`)",
+                rf"(?P<tool>{re.escape(tool_name)}\s*\()",
+                rf"(?P<tool>{re.escape(tool_name)}\s*[,，]\s*[a-zA-Z_]\w*\s*=)",
+            )
+            for pattern in patterns:
+                for match in re.finditer(pattern, text, flags=re.IGNORECASE):
+                    tool_start = match.start("tool")
+                    prefix = text[max(0, tool_start - 20) : tool_start]
+                    if self._NEGATIVE_TOOL_PREFIX_RE.search(prefix):
+                        continue
+                    explicit_matches.add(tool_name)
+                    break
+
+        if len(explicit_matches) == 1:
+            return next(iter(explicit_matches))
+        return None
+
+    def _extract_explicit_tool_text(
+        self,
+        event: AstrMessageEvent,
+        req: ProviderRequest,
+    ) -> str:
+        prompt_text = str(req.prompt or "").strip()
+        if not prompt_text:
+            return ""
+
+        is_buffered_prompt = getattr(event, "_buffered", False) is True
+        if is_buffered_prompt or "[System Notice]" in prompt_text:
+            match = self._BUFFERED_USER_INSTRUCTION_RE.search(prompt_text)
+            if match:
+                return match.group("instruction").strip()
+            return prompt_text
+
+        return prompt_text
+
+    async def _run_before_expose_tools(
+        self, context: ToolExposureContext
+    ) -> ToolExposureContext:
+        if self._request_hook_service is not None:
+            return await self._request_hook_service.apply_tool_exposure_hooks(context)
+        return await run_tool_exposure_hooks(self._tool_exposure_hooks, context)
+
+    async def _run_before_build_notices(
+        self, context: NoticeBuildContext
+    ) -> NoticeBuildContext:
+        if self._request_hook_service is not None:
+            return await self._request_hook_service.apply_notice_hooks(context)
+        return await run_notice_hooks(self._notice_hooks, context)
+
+    @staticmethod
+    def _set_event_extra(
+        event: AstrMessageEvent,
+        key: str,
+        value,
+    ) -> None:
+        set_extra = getattr(event, "set_extra", None)
+        if callable(set_extra):
+            set_extra(key, value)
+
+    @staticmethod
+    def _remove_file_tools(req: ProviderRequest) -> None:
+        if req.func_tool:
+            for tool_name in FILE_TOOLS:
+                req.func_tool.remove_tool(tool_name)
+
+    @staticmethod
+    def _remove_execution_tools(req: ProviderRequest) -> None:
+        if req.func_tool:
+            for tool_name in EXECUTION_TOOLS:
+                req.func_tool.remove_tool(tool_name)
+
+    def _merge_notice_sections(
+        self,
+        req: ProviderRequest,
+        *,
+        section_names: list[str],
+        notices: list[str],
+        target: str,
+    ) -> None:
+        if not notices:
+            return
+        ordered_names, ordered_notices = (
+            self._prompt_context_service.order_notice_sections(
+                section_names=section_names,
+                notices=notices,
+            )
+        )
+        merged_notice = "".join(ordered_notices)
+        if target == "system":
+            req.system_prompt = (req.system_prompt or "") + merged_notice
+        else:
+            current_prompt = str(req.prompt or "")
+            req.prompt = (
+                f"{current_prompt}\n\n{merged_notice}"
+                if current_prompt
+                else merged_notice
+            )
+        logger.debug(
+            "[文件管理] Prompt sections(%s): %s",
+            target,
+            self._prompt_context_service.build_section_trace(
+                section_names=ordered_names,
+                notices=ordered_notices,
+            ),
+        )
+
+    def _append_tools_denied_notice(self, req: ProviderRequest) -> None:
+        denied_section = self._prompt_context_service.build_tools_denied_section()
+        self._merge_notice_sections(
+            req,
+            section_names=[denied_section.name],
+            notices=[denied_section.content],
+            target="system",
+        )
+
+    def _resolve_exposure_decision(
+        self,
+        event: AstrMessageEvent,
+        req: ProviderRequest,
+        *,
+        is_group: bool,
+        is_friend: bool,
+    ) -> ExposureDecision:
+        explicit_tool_name = self._detect_explicit_file_tool(
+            self._extract_explicit_tool_text(event, req)
+        )
+        has_permission = self._check_permission(event)
+        can_process_upload = has_permission or event.is_admin()
+        get_extra = getattr(event, "get_extra", None)
+        doc_command_triggered = bool(
+            get_extra(DOC_COMMAND_TRIGGER_EVENT_KEY, False)
+            if callable(get_extra)
+            else False
+        )
+        meets_group_trigger = (
+            not is_group
+            or not self._require_at_in_group
+            or self._is_bot_mentioned(event)
+            or doc_command_triggered
+        )
+        should_expose = (is_friend and event.is_admin()) or (
+            has_permission and meets_group_trigger
+        )
+        return self.ExposureDecision(
+            explicit_tool_name=explicit_tool_name,
+            has_permission=has_permission,
+            can_process_upload=can_process_upload,
+            should_expose=should_expose,
+        )
+
+    async def apply(self, event: AstrMessageEvent, req: ProviderRequest) -> None:
+        structured_names = {
+            tool.name
+            for toolset in self._structured_toolsets
+            for tool in getattr(toolset, "tools", [])
+        }
+        # Registered tools may already be present from AstrBot's default tool set.
+        # Apply this plugin's exposure policy before adding authorized instances.
+        if req.func_tool is not None:
+            for name in structured_names:
+                req.func_tool.remove_tool(name)
+        is_group = event.message_obj.type == MessageType.GROUP_MESSAGE
+        is_friend = event.message_obj.type == MessageType.FRIEND_MESSAGE
+        decision = self._resolve_exposure_decision(
+            event,
+            req,
+            is_group=is_group,
+            is_friend=is_friend,
+        )
+        self._set_event_extra(
+            event,
+            EXPLICIT_FILE_TOOL_EVENT_KEY,
+            decision.explicit_tool_name,
+        )
+
+        if not self._is_group_feature_enabled(event):
+            self._remove_file_tools(req)
+            self._remove_execution_tools(req)
+            self._append_tools_denied_notice(req)
+            logger.debug("[文件管理] 群聊总开关关闭，已隐藏全部文件工具")
+            return
+
+        if not decision.should_expose:
+            if not decision.has_permission:
+                logger.debug(
+                    f"[文件管理] 用户 {event.get_sender_id()} 无文件权限，已隐藏文件工具"
+                )
+            else:
+                logger.debug(
+                    f"[文件管理] 用户 {event.get_sender_id()} 未满足群聊触发条件，已隐藏文件工具"
+                )
+            self._remove_file_tools(req)
+            self._remove_execution_tools(req)
+            self._append_tools_denied_notice(req)
+            return
+
+        if decision.should_expose and req.func_tool is not None:
+            registered_tools = (
+                self._tool_manager.get_full_tool_set()
+                if self._tool_manager is not None
+                else None
+            )
+            for toolset in self._structured_toolsets:
+                for tool in getattr(toolset, "tools", []):
+                    if registered_tools is not None:
+                        # Keep SDK permission guards and the current active state.
+                        tool = registered_tools.get_tool(tool.name)
+                    if tool is not None and getattr(tool, "active", True):
+                        req.func_tool.add_tool(tool)
+
+        await self._run_before_expose_tools(
+            ToolExposureContext(
+                event=event,
+                request=req,
+                should_expose=decision.should_expose,
+                can_process_upload=decision.can_process_upload,
+                explicit_tool_name=decision.explicit_tool_name,
+            )
+        )
+
+        notice_context = await self._run_before_build_notices(
+            NoticeBuildContext(
+                event=event,
+                request=req,
+                should_expose=decision.should_expose,
+                can_process_upload=decision.can_process_upload,
+                explicit_tool_name=decision.explicit_tool_name,
+            )
+        )
+        self._merge_notice_sections(
+            req,
+            section_names=notice_context.section_names,
+            notices=notice_context.notices,
+            target="prompt_suffix",
+        )
+        self._merge_notice_sections(
+            req,
+            section_names=notice_context.system_section_names,
+            notices=notice_context.system_notices,
+            target="system",
+        )

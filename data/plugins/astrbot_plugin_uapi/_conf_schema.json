@@ -1,0 +1,32 @@
+{
+  "api_key": {
+    "description": "UAPI API Key (可选，免费API无需填写)",
+    "type": "string",
+    "hint": "在 https://uapis.cn/console/api-keys 获取。大多数API免费无需Key，部分高级功能需要。",
+    "obvious_hint": true,
+    "default": ""
+  },
+  "base_url": {
+    "description": "API 基础地址",
+    "type": "string",
+    "default": "https://uapis.cn",
+    "invisible": true
+  },
+  "enable_tools": {
+    "description": "是否将 API 注册为 LLM Tool（供大模型调用）",
+    "type": "bool",
+    "default": true,
+    "hint": "启用后，AstrBot 的 LLM 可自动调用这些 API。关闭则仅支持指令调用。"
+  },
+  "tools_whitelist": {
+    "description": "LLM Tool 白名单（逗号分隔的API名称，留空则注册全部可用API）",
+    "type": "text",
+    "default": "",
+    "hint": "例如：misc.weather,network.ipinfo,translate.text,image.qrcode。留空则自动注册 registry 中所有不含路径参数的 API（约 90+ 个）。"
+  },
+  "request_timeout": {
+    "description": "API 请求超时时间（秒）",
+    "type": "int",
+    "default": 30
+  }
+}

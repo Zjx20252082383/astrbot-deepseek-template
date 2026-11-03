@@ -1,0 +1,5 @@
+name: astrbot_plugin_dafeiyu_draw
+desc: 大肥鱼画图——调用阿里云百炼通义万相文生图，费用由百炼代金券抵扣
+version: v1.0.0
+author: zjx
+repo: local

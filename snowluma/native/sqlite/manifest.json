@@ -1,0 +1,9 @@
+{
+  "package": "@appthreat/sqlite3",
+  "version": "9.1.0",
+  "nativeInterface": 1,
+  "target": "win32-x64",
+  "files": [
+    "prebuilds/win32-x64/@appthreat+sqlite3.node"
+  ]
+}
