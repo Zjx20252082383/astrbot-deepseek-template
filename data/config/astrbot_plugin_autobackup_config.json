@@ -1,0 +1,5 @@
+﻿{
+    "backup_path": "",
+    "cron_expression": "0 0 */7 * *",
+    "max_backups": 5
+}

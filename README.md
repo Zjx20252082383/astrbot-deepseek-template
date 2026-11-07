@@ -52,9 +52,13 @@
 
 **记忆模型**：识海图谱（零 LLM 毫秒级）承担联想记忆——每条消息的关键词/事件/情绪/高光节点入图，扩散激活召回 top-k 注入意图包，双衰减率（fact 0.1 / emotion 0.01 / highlight 0.005）按情感强度差异化遗忘，凌晨梦境固化重放+修剪。另配工具箱短事实记忆与私密日记本（`data/plugin_data/` 下，卸载插件不丢）。
 
-### 需要自行安装的第三方插件
+### 已内置的第三方插件
 
-克隆本仓后，在 AstrBot 插件市场安装：`astrbot_plugin_clonetts`（克隆语音，大肥鱼 TTS 的 key 来源）、`astrbot_plugin_autobackup`（自动备份）。装好后把它们的配置项填上即可。
+仓内还带两个开源第三方插件（均保留原 LICENSE，配置里的密钥已清空，装好后自行填 key）：
+- `astrbot_plugin_clonetts`【识海·语音件】——火山引擎音色克隆 TTS，大肥鱼语音/清唱的 key 来源
+- `astrbot_plugin_autobackup`【识海·运维件】——AstrBot 目录定时备份
+
+其余运行产物（WebUI 前端 dist、数据库、记忆数据、SnowLuma 本体）都不在仓里：AstrBot/SnowLuma 按官方方式安装后首次启动自动生成。
 
 
 ## 二、目录结构
