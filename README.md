@@ -28,7 +28,7 @@
   - AstrBot 后台：`http://127.0.0.1:6185`（默认账号密码都是 `astrbot`）
   - SnowLuma 后台：`http://127.0.0.1:5099`（首次启动会自动生成一次性初始密码，打印在 SnowLuma 控制台日志里；登录后台后请立即改密码，否则每次重启都会换新密码）
 
-## 一点五、识海架构：动机动力学与语言生成解耦（本项目核心）
+### 1.1 识海架构：动机动力学与语言生成解耦（本项目核心）
 
 本模板不是"提示词+工具"的普通机器人——它内置了论文《识海：融合人格心理学的 QQ 数字生命耦合动力系统》的完整实现。核心思想：**独立的状态动力学系统决定"什么时候说话、为什么说话"，大模型只负责"怎么说"**。
 
@@ -73,7 +73,8 @@
 │   ├── data_v4.db            # 会话/人格数据库（首次启动自动生成）
 │   ├── dist\                 # AstrBot WebUI 前端（勿删）
 │   ├── plugins\              # ★ 全部插件（开发插件就在这里）
-│   └── config\               # 各插件的配置文件
+│   ├── config\               # 各插件的配置文件
+│   └── plugin_data\          # 插件运行数据：识海图谱、日记、短记忆（卸载插件不丢）
 ├── snowluma\                 # SnowLuma 运行时（自带 node.exe，免安装）
 │   ├── config\
 │   │   └── onebot_你的QQ号.json   # ★ OneBot 连接配置（文件名要改成你的QQ号）
@@ -99,10 +100,10 @@
 | 功能 | 用什么 Key | 填在哪（具体文件 → 具体字段） |
 |---|---|---|
 | 文本聊天（默认）+ 识图 | 阿里云百炼 API Key | `data\cmd_config.json` → `provider_sources` → `id` 为 `"aliyun_bailian_source"` 那段的 `"key": [ ... ]` |
-| AI 画图 | 阿里云百炼 API Key（同上，单独一份） | `data\config\astrbot_plugin_dafeiyu_draw_config.json` → `"api_key"` |
+| AI 画图 | 阿里云百炼 API Key（同上，单独一份） | `data\config\astrbot_plugin_shihai_behavior_config.json` → `draw` 组 `"api_key"` |
 | 语音聊天（机器人开口说话、唱歌） | 火山引擎 API Key（音色克隆） | `data\config\astrbot_plugin_clonetts_config.json` → `"api_key"`（申请教程见该插件的 README.md） |
+| 清唱/聊天 TTS 主链路 | 字节跳动 Seed-TTS（火山同账号） | `data\config\astrbot_plugin_shihai_behavior_config.json` → `voice` 组的 key 字段 |
 | 直连 DeepSeek 官方（当前未启用） | DeepSeek API Key | `data\cmd_config.json` → `provider_sources` → `id` 为 `"deepseek_source"` 那段的 `"key": [ ... ]` |
-| 长期记忆向量化 | 智谱 API Key | `data\cmd_config.json` → ① `provider_sources` → `id` 为 `"zhipu_embed_source"` 的 `"key"`；② `provider` → `zhipu_embedding` 的 `"embedding_api_key"`（同一把钥匙，两处都要填） |
 | 联网搜索 | 博查 API Key | `data\cmd_config.json` → `provider_settings` → `"websearch_bocha_key"` |
 
 **去哪申请**
@@ -112,7 +113,6 @@
 | 阿里云百炼 | [bailian.console.aliyun.com](https://bailian.console.aliyun.com) | **作者目前用的就是这把**（阿里云 300 元代金券）：`deepseek-v4.1-flash-1017` 做文本聊天、`qwen-vl-plus` 识图、画图走 `wanx2.1-t2i-turbo` |
 | 火山引擎语音 | [console.volcengine.com/speech](https://console.volcengine.com/speech/new/overview?projectName=default) | 开通语音合成 → 创建克隆音色 → 把 API Key 填进 clonetts 插件、音色 ID 填进 `"voice_type"`；详细图文教程在 `data\plugins\astrbot_plugin_clonetts\README.md` |
 | DeepSeek 官方 | [platform.deepseek.com](https://platform.deepseek.com) | 本模板**暂时没用它**（作者先用阿里云 300 元代金券跑）。想换成官方直连见下方说明 |
-| 智谱 | [open.bigmodel.cn](https://open.bigmodel.cn) | 长期记忆插件的向量化引擎，机器人"记得住人"全靠它 |
 | 博查 | [bochaai.com](https://bochaai.com) | 联网搜索引擎，点歌搜歌、查资料走这里 |
 
 **想从阿里云切到 DeepSeek 官方**：改 `data\cmd_config.json` 的 `provider` 段——把 `"aliyun_bailian/deepseek-v4.1-flash-1017"` 的 `"enable"` 改为 `false`，把 `"deepseek"` 的 `"enable"` 改为 `true`，再把 `provider_settings.default_provider_id` 改成 `"deepseek"`，重启即可。
@@ -225,15 +225,14 @@ class HelloPlugin(Star):
 
 | 插件 | 作用 | 来源 |
 |---|---|---|
-| `astrbot_plugin_dafeiyu` | 核心人格工具：写日记、贴纸、表情 | **自研，欢迎一起开发** |
-| `astrbot_plugin_dafeiyu_toolbox` | QQ 空间说说/点赞/签名、语音说话唱歌、投诉通道 | **自研，欢迎一起开发** |
-| `astrbot_plugin_autonomous_social` | 主动社交：会自己找人搭话、 follow up | **自研，欢迎一起开发** |
-| `astrbot_plugin_dafeiyu_code` / `_draw` | 代码沙箱 / AI 画画 | **自研，欢迎一起开发** |
-| `astrbot_plugin_uapi` | 聚合小工具（热搜/天气/查QQ资料等） | 第三方 |
-| `astrbot_plugin_livingmemory` | 长期记忆（向量+图谱） | 第三方 |
+| `astrbot_plugin_shihai`【识海·核心】 | 心智引擎：情绪场 ODE、神经图谱记忆、念头引擎、反馈自适应（z=[e,a,θ,ψ,u,g]） | **自研，欢迎一起开发** |
+| `astrbot_plugin_shihai_psyche`【识海·心理】 | 大五人格、依恋、防御机制、自我效能等六心理模型 | **自研，欢迎一起开发** |
+| `astrbot_plugin_shihai_behavior`【识海·行为与适配】 | 总成：涌现行为空间+意图包出口 ⊕ 工具箱（说说/语音/QQ动作/告状/短记忆/控制台）⊕ RVC 翻唱 ⊕ 画图 ⊕ 戳一戳 ⊕ 日记 | **自研，欢迎一起开发** |
+| `astrbot_plugin_shihai_tools`【识海·工具件】 | 聚合小工具（热搜/天气/查QQ资料等 100+ API） | 第三方（定制改名） |
 | `astrbot_plugin_clonetts` | 声音克隆 TTS | 第三方 |
-| `astrbot_plugin_ai_cover` | 本地 RVC AI 翻唱（需自建 RVC 服务，默认关） | 第三方 |
-| 其余 `music` / `browser` / `office_assistant` / `token_usage` / `autobackup` | 点歌 / 浏览器 / 文档处理 / 用量统计 / 自动备份 | 第三方 |
+| `astrbot_plugin_autobackup` | 自动备份 | 第三方 |
+
+> 识海记忆是**零 LLM** 的神经图谱（扩散激活+双衰减+Hebbian），不需要向量化 API——这是它与向量记忆方案（如 livingmemory）的核心区别，也是本模板省 token 的关键设计。
 
 **想贡献插件：** 直接在 `data\plugins\` 里照着上面的模板写一个新插件，或把现有自研插件改出花样。AstrBot 插件标准文档见 [官方插件开发文档](https://astrbot.app/dev/star/plugin.html)。
 
@@ -251,7 +250,7 @@ class HelloPlugin(Star):
   ```
   schtasks /Create /TN "BotWatchdog" /TR "wscript.exe E:\你的路径\astrbot-deepseek-template\watchdog\watchdog_hidden.vbs" /SC MINUTE /MO 3 /F
   ```
-- **在线/离线模式**：`离线模式.bat` 会关闭 QQ 并停用主动社交插件（省 token，定时任务如写日记仍运行），`在线模式.bat` 恢复。注意：恢复后 QQ 需要你手动打开并登录，SnowLuma 会自动注入已登录的 QQ。
+- **在线/离线模式**：`离线模式.bat` 会关闭 QQ 并把主动开口的行为插件（shihai_behavior）挪出插件目录暂存（省 token，定时任务如写日记仍运行），`在线模式.bat` 恢复。注意：恢复后 QQ 需要你手动打开并登录，SnowLuma 会自动注入已登录的 QQ。
 - **AI 翻唱**：详见下方「让她开口说话与唱歌」一节。
 - **`data\mcp_server.json` / `data\skills.json`**：AstrBot 的 MCP 服务与技能配置，模板里是默认占位，不需要动。
 
@@ -264,7 +263,7 @@ class HelloPlugin(Star):
 | `astrbot_start.bat` | 单独启动 AstrBot（日志写到 `watchdog\astrbot_boot.log`） | 需要 `astrbot` 在 PATH | 配合 vbs/计划任务后台运行 |
 | `snowluma_service_hidden.vbs` | 隐藏窗口静默启动 SnowLuma | 双击即在后台运行；主要给计划任务/看门狗调用 | 开机自启、无人值守 |
 | `astrbot_service_hidden.vbs` | 隐藏窗口静默启动 AstrBot | 同上 | 同上 |
-| `在线模式.bat` / `离线模式.bat` | 调用 `watchdog\mode.ps1` 切换模式：离线 = 停 SnowLuma + 停用主动社交插件（改名 `.disabled`）+ 重启 AstrBot；在线 = 恢复插件 + 拉起 SnowLuma + 重启 AstrBot | 双击；离线后 SnowLuma 重启需要重新打开 | 出门/睡觉省 token 用离线 |
+| `在线模式.bat` / `离线模式.bat` | 调用 `watchdog\mode.ps1` 切换模式：离线 = 停 SnowLuma + 把识海行为插件挪出插件目录暂存 + 重启 AstrBot；在线 = 恢复插件 + 拉起 SnowLuma + 重启 AstrBot | 双击；离线后 SnowLuma 重启需要重新打开 | 出门/睡觉省 token 用离线 |
 | `watchdog\watchdog.ps1` | 看门狗一轮检查：AstrBot 端口 6199 不通 → 拉 `astrbot_service_hidden.vbs`；SnowLuma WebUI 5099 不通 → 拉 `snowluma_service_hidden.vbs`；`mode.txt` 为 offline 时不拉 SnowLuma；带 4~5 分钟冷却防反复拉起 | 不要手动反复跑，交给计划任务每 3 分钟跑一次（见下） | 长期无人值守 |
 | `watchdog\watchdog_hidden.vbs` | 隐藏运行 `watchdog.ps1` | 用计划任务注册：`schtasks /Create /TN "BotWatchdog" /TR "wscript.exe <完整路径>\watchdog\watchdog_hidden.vbs" /SC MINUTE /MO 3 /F`（需管理员 PowerShell） | 同上 |
 | `watchdog\mode.ps1` | 在线/离线切换逻辑本体（两个模式 bat 只是壳） | `powershell -File mode.ps1 -Mode online\|offline` | 脚本化控制时 |
@@ -310,7 +309,7 @@ class HelloPlugin(Star):
 
 ### 6.2 唱歌：RVC AI 翻唱（自建推理服务）
 
-翻唱流水线：一首歌 → 人声/伴奏分离（PyMSS/MSST）→ 去混响 → RVC 音色转换 → 混音成 MP3。需要一个本机或局域网内的 RVC 推理服务（默认端口 18888），AstrBot 通过 `astrbot_plugin_ai_cover` 插件调用。
+翻唱流水线：一首歌 → 人声/伴奏分离（PyMSS/MSST）→ 去混响 → RVC 音色转换 → 混音成 MP3。需要一个本机或局域网内的 RVC 推理服务（默认端口 18888），AstrBot 通过识海行为插件内置的翻唱模块（`astrbot_plugin_shihai_behavior` 的 `cover.py`）调用。
 
 服务端基于 [RVC-Project/Retrieval-based-Voice-Conversion-WebUI](https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI) 搭建（在其 WebUI 之上加一层 FastAPI 接口），要点：
 
@@ -321,10 +320,10 @@ class HelloPlugin(Star):
 3. **分离/去混响模型**：`assets/pymss_weights/`（MSST 系列ckpt：人声分离、去混响等，按需下载）
 4. **音色模型**：`assets/weights/角色名.pth`（可选配 `logs/角色名.index` 特征索引，提升相似度）
 5. **启动**：`runtime\python.exe tools\ai_cover_service.py`（默认 `0.0.0.0:18888`）；暴露到局域网时务必设 `AI_COVER_API_TOKEN` 共享令牌
-6. **对接 AstrBot**：`data\config\astrbot_plugin_ai_cover_config.json` 里填 `service_url`（如 `http://127.0.0.1:18888`）和 `api_token`
-7. **使用**：QQ 里发 `/翻唱模型` 看模型列表，`/翻唱 歌曲音频` 即可翻唱；完整参数：`/翻唱 [模型] [人声变调] [BGM变调] [人声音量] [背景音乐音量] [变速]`
+6. **对接 AstrBot**：`data\config\astrbot_plugin_shihai_behavior_config.json` 里填 `service_url`（如 `http://127.0.0.1:18888`）和 `api_token`
+7. **使用**：QQ 里说"唱首XX"即可（识海情绪 love/happy 高时她也可能自己想唱）；`cover_tune` 工具可调音量/模型/发送方式
 
-**调参心得**（模板已按效果调好，想微调改 `data\config\astrbot_plugin_ai_cover_config.json`）：
+**调参心得**（模板已按效果调好，想微调改 `data\config\astrbot_plugin_shihai_behavior_config.json`，或对机器人说"把人声音量调大点"走 `cover_tune` 工具）：
 
 | 参数 | 模板值 | 作用 |
 |---|---|---|
@@ -336,7 +335,7 @@ class HelloPlugin(Star):
 
 ### 6.3 声音语气变化的实现（情绪 → 语气指令 → TTS）
 
-她说话不是同一个调调念到底——回复文本会先被自动分类出情绪，再翻译成一段"导演式语气指令"喂给 TTS。这套系统在自研插件 `astrbot_plugin_dafeiyu_toolbox` 的 `modules/voice.py` 里，装好即用，思路如下：
+她说话不是同一个调调念到底——回复文本会先被自动分类出情绪，再翻译成一段"导演式语气指令"喂给 TTS。这套系统在识海行为插件的 `modules/voice.py` 里，装好即用，思路如下：
 
 1. **情绪检测**：用关键词规则把 LLM 回复分类成 12 种情绪——开心、伤心、生气、撒娇、害羞、惊讶、害怕、疲惫、兴奋、调皮、傲娇、唱歌（另有默认 normal）；用户原文含"唱个歌/来一段"等词则直接进入唱歌分支。
 2. **情绪 → 语气指令**：每种情绪对应一段自然语言的"演技指导"而不是冷参数，例如：
@@ -347,7 +346,7 @@ class HelloPlugin(Star):
 4. **歌词预处理**：唱歌时把歌词按标点切成短句、用停顿符连接，让合成有换气和乐句感；说话时则清洗掉 emoji、markdown、括号动作描写（`（歪头）`），换行转停顿——避免被一本正经地念出来。
 5. **听懂语音**：收到 QQ 语音消息自动走 MiMo ASR（`mimo-v2.5-asr`）转文字进上下文，所以她能"听"你语音。
 
-> 想用同样的语气系统：不需要写代码，装好 `astrbot_plugin_dafeiyu_toolbox` 后在配置页填 BreezeBlue（或 MiMo）的 Key 和 Voice ID 即可；火山 clonetts（6.1）是独立的一条 TTS 通道，两者可共存。
+> 想用同样的语气系统：不需要写代码，识海行为插件已内置（`modules/voice.py`），在配置页 `voice` 组填 BreezeBlue（或 MiMo）的 Key 和 Voice ID 即可；火山 clonetts（6.1）是独立的一条 TTS 通道，两者可共存。
 
 ### 6.4 训练自己的音色模型（数据生成 → 训练 → 部署）
 
