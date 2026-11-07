@@ -7,7 +7,8 @@ $log = "$base\data\watchdog.log"
 
 # token-burning proactive plugins: offline mode stashes them OUT of data\plugins
 # (AstrBot scans every dir under data\plugins, renaming to *.disabled does NOT work)
-$stashable = @("astrbot_plugin_Conversa", "astrbot_plugin_autonomous_social")
+# 2026-11: Conversa / autonomous_social 已删除（识海念头引擎替代），现在暂存识海行为出口
+$stashable = @("astrbot_plugin_shihai_behavior")
 
 function Log($m) {
     try { "$([DateTime]::Now.ToString('MM-dd HH:mm:ss')) [mode] $m" | Add-Content $log -Encoding UTF8 } catch {}

@@ -5,7 +5,13 @@ data/data_v4.db-wal
 data/data_v4.db-shm
 data/plugin_data/
 data/logs/
+data/temp/
+data/knowledge_base/
+data/t2i_templates/
+data/dist/
+data/dashboard.zip
 data/*.bak
+snowluma/
 snowluma/data/
 snowluma/config/onebot_*[0-9].json
 snowluma/config/runtime.json
@@ -15,6 +21,7 @@ watchdog/disabled_by_offline.txt
 watchdog/cool_*.txt
 watchdog/*.log
 watchdog/astrbot_boot.log
+watchdog/snowluma_boot.log
 
 # ==== 运行时缓存 ====
 **/__pycache__/

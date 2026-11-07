@@ -1,0 +1,176 @@
+{
+ "behaviors": [
+  {
+   "id": "proactive_greeting",
+   "label": "主动打招呼",
+   "category": "主动行为",
+   "intent_type": "主动关心",
+   "proactive": true,
+   "needs": "",
+   "phi": {
+    "g_relation": 0.5,
+    "g_avoid": -0.1
+   },
+   "requires": {},
+   "anchor": [
+    "recent"
+   ],
+   "enabled": true
+  },
+  {
+   "id": "care_inquiry",
+   "label": "关心近况",
+   "category": "关系行为",
+   "intent_type": "主动关心",
+   "proactive": true,
+   "needs": "",
+   "phi": {
+    "g_relation": 0.7,
+    "g_avoid": 0.2
+   },
+   "requires": {},
+   "anchor": [
+    "recent"
+   ],
+   "enabled": true
+  },
+  {
+   "id": "recall_share",
+   "label": "分享想起的旧事",
+   "category": "主动行为",
+   "intent_type": "主动回忆",
+   "proactive": true,
+   "needs": "",
+   "phi": {
+    "g_memory": 0.5,
+    "g_relation": 0.3
+   },
+   "requires": {},
+   "anchor": [
+    "revisit"
+   ],
+   "enabled": true
+  },
+  {
+   "id": "promise_followup",
+   "label": "承诺跟进",
+   "category": "主动行为",
+   "intent_type": "主动回忆",
+   "proactive": true,
+   "needs": "",
+   "phi": {
+    "g_relation": 0.6,
+    "g_memory": 0.3
+   },
+   "requires": {},
+   "anchor": [
+    "promise"
+   ],
+   "enabled": true
+  },
+  {
+   "id": "sing_cover",
+   "label": "唱歌给主人听",
+   "category": "对话与表达",
+   "intent_type": "主动关心",
+   "proactive": true,
+   "needs": "ai_cover",
+   "phi": {
+    "g_relation": 0.4,
+    "g_self": 0.3
+   },
+   "requires": {
+    "emotion": {
+     "love": 0.55
+    }
+   },
+   "anchor": [
+    "recent",
+    "revisit"
+   ],
+   "enabled": false
+  },
+  {
+   "id": "chat_followup",
+   "label": "接续话题",
+   "category": "对话与表达",
+   "intent_type": "被动应答",
+   "proactive": false,
+   "needs": "",
+   "phi": {
+    "g_relation": 0.6,
+    "g_self": 0.1
+   },
+   "requires": {},
+   "enabled": true
+  },
+  {
+   "id": "sticker",
+   "label": "发表情包",
+   "category": "对话与表达",
+   "intent_type": "被动应答",
+   "proactive": false,
+   "needs": "dafeiyu",
+   "phi": {
+    "g_relation": 0.3,
+    "g_self": 0.2
+   },
+   "requires": {},
+   "enabled": true
+  },
+  {
+   "id": "diary_write",
+   "label": "写日记",
+   "category": "自我表露",
+   "intent_type": "被动应答",
+   "proactive": false,
+   "needs": "dafeiyu",
+   "phi": {
+    "g_memory": 0.6,
+    "g_self": 0.3
+   },
+   "requires": {},
+   "enabled": true
+  },
+  {
+   "id": "post_feed",
+   "label": "发说说",
+   "category": "自我表露",
+   "intent_type": "被动应答",
+   "proactive": false,
+   "needs": "dafeiyu",
+   "phi": {
+    "g_self": 0.5,
+    "g_relation": 0.2
+   },
+   "requires": {},
+   "enabled": true
+  },
+  {
+   "id": "set_signature",
+   "label": "改签名",
+   "category": "自我表露",
+   "intent_type": "被动应答",
+   "proactive": false,
+   "needs": "dafeiyu",
+   "phi": {
+    "g_self": 0.6
+   },
+   "requires": {},
+   "enabled": true
+  },
+  {
+   "id": "dream_consolidate",
+   "label": "梦境固化",
+   "category": "后台行为",
+   "intent_type": "被动应答",
+   "proactive": false,
+   "needs": "",
+   "phi": {
+    "g_memory": 0.9
+   },
+   "requires": {},
+   "enabled": true
+  }
+ ]
+}

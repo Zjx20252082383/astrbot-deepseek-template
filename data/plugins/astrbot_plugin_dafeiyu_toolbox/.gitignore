@@ -1,9 +1,0 @@
-__pycache__/
-*.py[cod]
-.venv/
-data/
-complaints.json
-usage.json
-history.json
-*.silk
-*.wav

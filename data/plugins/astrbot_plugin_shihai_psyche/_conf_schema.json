@@ -1,0 +1,77 @@
+{
+  "O_init": {
+    "description": "ψ 开放性 O 初值",
+    "type": "float",
+    "default": 0.55,
+    "slider": {"min": 0, "max": 1, "step": 0.05},
+    "hint": "论文§8：大五人格是'性格基底'，月级慢漂移，初始化时设定。认知失调时 O 决定更新还是合理化。"
+  },
+  "C_init": {
+    "description": "ψ 尽责性 C 初值",
+    "type": "float",
+    "default": 0.45,
+    "slider": {"min": 0, "max": 1, "step": 0.05},
+    "hint": "论文§8 大五人格。"
+  },
+  "E_init": {
+    "description": "ψ 外向性 E 初值",
+    "type": "float",
+    "default": 0.6,
+    "slider": {"min": 0, "max": 1, "step": 0.05},
+    "hint": "论文§8：p_initiate ∝ E，外向性越高越主动找人说话。"
+  },
+  "A_init": {
+    "description": "ψ 宜人性 A 初值",
+    "type": "float",
+    "default": 0.7,
+    "slider": {"min": 0, "max": 1, "step": 0.05},
+    "hint": "论文§8：θ_tantrum=θ₀×(1+A)，宜人性越高越不容易发火。"
+  },
+  "N_init": {
+    "description": "ψ 神经质 N 初值",
+    "type": "float",
+    "default": 0.35,
+    "slider": {"min": 0, "max": 1, "step": 0.05},
+    "hint": "论文§8：τ_fear=τ₀×(1+N)；自洽报告§8 验证 N 调制恐惧消退。"
+  },
+  "eff_init": {
+    "description": "自我效能 eff 初值",
+    "type": "float",
+    "default": 0.6,
+    "slider": {"min": 0, "max": 1, "step": 0.05},
+    "hint": "论文§8：成功 +0.05 / 失败 -0.1，调制回复自信度。"
+  },
+  "att_init": {
+    "description": "依恋 att 初值",
+    "type": "float",
+    "default": 1.0,
+    "slider": {"min": 0, "max": 3, "step": 0.1},
+    "hint": "论文§8 依恋理论：主人回复一致性 → θ_send → 主动开口频率。"
+  },
+  "tantrum_init": {
+    "description": "发脾气阈值初值",
+    "type": "float",
+    "default": 0.6,
+    "slider": {"min": 0.1, "max": 2, "step": 0.05},
+    "hint": "实际生效值 = 本值 ×(1+A)（论文§8）。"
+  },
+  "defense_style": {
+    "description": "防御机制风格",
+    "type": "string",
+    "default": "auto",
+    "options": ["auto", "rationalize", "suppress", "project"],
+    "hint": "论文§8：失败时选 合理化/压抑/投射。auto=由 N/A 自动决定。"
+  },
+  "lexicon_positive": {
+    "description": "正反馈词扩展（逗号分隔）",
+    "type": "string",
+    "default": "",
+    "hint": "除了内置的'好/棒/谢谢'等，主人特有的口头禅可以加进来，如：真乖,不愧是你。核心的自适应引擎会一起识别。"
+  },
+  "lexicon_negative": {
+    "description": "强负反馈词扩展（逗号分隔）",
+    "type": "string",
+    "default": "",
+    "hint": "除了内置的'别老找我'等，加主人特有的反感表达，如：别来烦我。"
+  }
+}

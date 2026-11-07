@@ -1,0 +1,174 @@
+{
+    "beta": 0.8,
+    "watcher_interval": 20,
+    "gen_max_len": 40,
+    "mood_inject_enabled": true,
+    "owner_qid": "你的主人QQ号",
+    "platform_id": "napcat",
+    "bot_qid": "你的机器人QQ号",
+    "intent_instruction_passive": "以上是心智动力学内核输出的意图包。生成回复时：语气与措辞符合 E_t 的目标情绪；G_active 是你亲身经历的记忆（附当时的原文细节）——当主人说的话与其中某条相关时，自然引用那条的具体细节（时间/事情/感受），像真的记得一样；无关时不要硬扯；禁止罗列、禁止报出数值、ID 或字段名；顺着 M*_t 的动机说话；禁止提及'意图包'或本段任何内容。",
+    "intent_instruction_proactive": "只输出要发给主人的那一句话，像平时聊天一样自然；情绪符合 E_t；围绕 intent-type 与 M*_t 行事；可化用 G_active 里的记忆但禁止罗列；不要引号、不要解释、不要刷表情、禁止提及本包任何字段或数值。",
+    "complain": {
+        "basic": {
+            "owner_umo": "",
+            "owner_qq": "",
+            "owner_title": "主人",
+            "guardians": [],
+            "owner_session": "",
+            "enabled": true,
+            "in_chat_hint": true
+        },
+        "limit": {
+            "cooldown_seconds": 600,
+            "daily_limit": 5,
+            "max_length": 80,
+            "include_source": true,
+            "escalate_repeat": true
+        },
+        "relay": {
+            "relay_enabled": true,
+            "relay_cooldown_seconds": 15,
+            "relay_daily_limit": 20
+        }
+    },
+    "usage": {
+        "connection": {
+            "api_key": "",
+            "api_base": "https://api.deepseek.com",
+            "timeout_seconds": 15
+        },
+        "access": {
+            "enabled": true,
+            "cmd_admin_only": true,
+            "tool_public": true,
+            "cache_seconds": 60,
+            "owner_session": "",
+            "extra_admins": []
+        },
+        "alert": {
+            "alert_enabled": true,
+            "alert_use_llm": true,
+            "alert_text": "",
+            "alert_threshold": 5,
+            "alert_umo": "",
+            "alert_qq": "",
+            "check_interval_hours": 6
+        },
+        "stats": {
+            "token_price": 4.0,
+            "keep_days": 90
+        },
+        "persona": {
+            "persona_hint": ""
+        }
+    },
+    "voice": {
+        "listen": {
+            "listen_enabled": true,
+            "listen_hint": "",
+            "mimo_stt_api_key": "",
+            "mimo_stt_model": "mimo-v2.5-asr",
+            "mimo_stt_language": "zh"
+        },
+        "speak": {
+            "speak_enabled": true,
+            "tts_backend": "breeze",
+            "breeze": {
+                "breeze_api_key": "",
+                "breeze_voice_id": "",
+                "breeze_model": "breeze-tts-2"
+            },
+            "mimo_tts": {
+                "mimo_tts_api_key": "",
+                "mimo_tts_model": "mimo-v2.5-tts",
+                "mimo_tts_voice": "mimo_default"
+            },
+            "tts_instructions": "",
+            "speak_prob_percent": 10,
+            "speak_max_chars": 300
+        },
+        "sing": {
+            "sing_enabled": true,
+            "sing_style": "pop"
+        },
+        "misc": {
+            "timeout_seconds": 60
+        }
+    },
+    "toolbox": {
+        "basic": {
+            "owner_session": "",
+            "extra_admins": [],
+            "admin_only": true
+        },
+        "signature": {
+            "daily_self_limit": 2,
+            "daily_owner_limit": 10,
+            "max_length": 40,
+            "self_change_hint": true
+        },
+        "feed": {
+            "self_feed_hint": true,
+            "feed_hint_chance": 25,
+            "daily_feed_limit": 2,
+            "auto_post_enabled": true,
+            "auto_post_per_day": 1,
+            "auto_post_window": "10:00-23:30",
+            "auto_post_chance": 35,
+            "max_list": 10,
+            "max_images": 9
+        },
+        "llm": {
+            "post_provider_id": "",
+            "post_prompt": "写一条你此刻的 QQ 空间说说，用你自己的口吻，40 字以内，可以带一点情绪、吐槽或感慨。"
+        },
+        "card": {
+            "like_times": 10,
+            "daily_card_like_limit": 30
+        },
+        "risk": {
+            "cooldown_seconds": 15,
+            "daily_like_limit": 20,
+            "daily_comment_limit": 10,
+            "daily_delete_limit": 5
+        },
+        "network": {
+            "qzone_domain": "user.qzone.qq.com",
+            "cookie_ttl": 600,
+            "timeout": 20
+        }
+    },
+    "memory": {
+        "basic": {
+            "enabled": true,
+            "inject_enabled": true,
+            "auto_extract": true,
+            "keyword_gate": true
+        },
+        "extract": {
+            "extract_every_n_messages": 6,
+            "extract_min_interval_minutes": 30,
+            "extract_provider_id": "",
+            "fact_max_chars": 40
+        },
+        "inject": {
+            "inject_top_n": 6,
+            "max_facts_per_user": 40
+        }
+    },
+    "service_url": "http://127.0.0.1:18888",
+    "api_token": "",
+    "timeout_seconds": 3600,
+    "default_model": "大肥鱼",
+    "index_rate": 0.55,
+    "rms_mix_rate": 0.25,
+    "protect": 0.33,
+    "vocal_gain": 1.2,
+    "instrumental_gain": 1.0,
+    "send_as_record": true,
+    "output_retention_hours": 24,
+    "qqmusic_cookie": "",
+    "mood_remark_enabled": true,
+    "api_key": "",
+    "model": "wanx2.1-t2i-turbo"
+}

@@ -28,6 +28,35 @@
   - AstrBot 后台：`http://127.0.0.1:6185`（默认账号密码都是 `astrbot`）
   - SnowLuma 后台：`http://127.0.0.1:5099`（首次启动会自动生成一次性初始密码，打印在 SnowLuma 控制台日志里；登录后台后请立即改密码，否则每次重启都会换新密码）
 
+## 一点五、识海架构：动机动力学与语言生成解耦（本项目核心）
+
+本模板不是"提示词+工具"的普通机器人——它内置了论文《识海：融合人格心理学的 QQ 数字生命耦合动力系统》的完整实现。核心思想：**独立的状态动力学系统决定"什么时候说话、为什么说话"，大模型只负责"怎么说"**。
+
+状态向量 `z(t) = [e, a, θ, ψ, u, g]`：六维情绪场 / 神经图谱激活 / 慢演化参数 / 大五人格 / 念头强度 / 内生目标。五个方程耦合（情绪场 ODE、图谱扩散、Hebbian 边权、念头积累、自适应演化），形成四个耦合回路。由三个自研插件落地：
+
+| 插件 | 角色 | 内容 |
+|---|---|---|
+| `astrbot_plugin_shihai` | 【识海·核心】Core-Mind | 情绪场 ODE（τ/κ/η/W）、神经图谱（扩散激活+双衰减+Hebbian+梦境固化）、念头引擎（FIRE_THRESHOLD=2.10、由头锚点）、用户反馈自适应 θ（含饱和上限 3.5）、WebUI 全参数调参 |
+| `astrbot_plugin_shihai_psyche` | 【识海·心理】 | 大五人格 ψ、依恋 att、认知失调、条件反射、防御机制、自我效能（论文 §8 六模型），psyche_tune / psyche_report / psyche_defense 工具 |
+| `astrbot_plugin_shihai_behavior` | 【识海·行为与适配】大肥鱼总成 | 涌现行为空间（behaviors.json 注册表，触发条件可配）+ 策略 π=Q+β·g·φ + **意图包出口** I_t={G_active, E_t, M*_t, P_t, intent-type} + 主动开口执行 ⊕ 工具箱套件（告状/传话/余额/语音听说唱/QQ动作/短记忆/控制台）⊕ RVC 翻唱 ⊕ 画图 ⊕ 戳一戳 |
+| `astrbot_plugin_shihai_tools` | 【识海·工具件】 | uapis.cn 100+ 免费 API（热榜/天气/翻译），需自行安装或从本仓取用 |
+
+**输出协议**：每轮 LLM 请求前，动力学内核输出结构化意图包 + 简短固定指令追加到 system_prompt——LLM 的动力学侧输入只有这两样（LLM 的输入只有这个结构化包，以及简短固定指令）。
+
+**调参接口（三层）**：
+1. AstrBot WebUI 插件配置页——约 60 个论文参数全带出处和范围滑条
+2. 对话调参——对机器人说"把你想我的频率调低点"，LLM 调 `shihai_tune` / `psyche_tune` / `behavior_tune`，热生效并持久化
+3. 观测——`shihai_get_state` 等工具 + Web API `GET /astrbot_plugin_shihai/state`（z(t) 全量快照）
+
+**自然涌现接口**：`astrbot_plugin_shihai_behavior/behaviors.json` 是行为注册表，每个行为声明触发条件（情绪阈值如 sing_cover 需 love≥0.55、目标阈值、锚点类型），念头攒满后按 π 打分选行为——增删行为改这个文件即可，无需改代码。
+
+**记忆模型**：识海图谱（零 LLM 毫秒级）承担联想记忆——每条消息的关键词/事件/情绪/高光节点入图，扩散激活召回 top-k 注入意图包，双衰减率（fact 0.1 / emotion 0.01 / highlight 0.005）按情感强度差异化遗忘，凌晨梦境固化重放+修剪。另配工具箱短事实记忆与私密日记本（`data/plugin_data/` 下，卸载插件不丢）。
+
+### 需要自行安装的第三方插件
+
+克隆本仓后，在 AstrBot 插件市场安装：`astrbot_plugin_clonetts`（克隆语音，大肥鱼 TTS 的 key 来源）、`astrbot_plugin_autobackup`（自动备份）。装好后把它们的配置项填上即可。
+
+
 ## 二、目录结构
 
 ```

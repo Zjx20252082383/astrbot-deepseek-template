@@ -1,0 +1,6 @@
+name: astrbot_plugin_shihai_behavior
+display_name: 【识海·行为与适配】大肥鱼总成
+desc: 识海行为与适配统一出口：涌现行为空间+策略π+意图包出口（Behavior API）⊕ 工具箱套件（告状/传话/余额/语音/QQ动作/短记忆/控制台）⊕ RVC翻唱 ⊕ 画图 ⊕ 戳一戳/查资料，含调参接口
+version: 3.0.0
+author: zjx
+repo: local

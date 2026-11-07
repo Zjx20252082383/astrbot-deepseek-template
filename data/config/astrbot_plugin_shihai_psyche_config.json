@@ -1,0 +1,13 @@
+﻿{
+  "O_init": 0.55,
+  "C_init": 0.45,
+  "E_init": 0.6,
+  "A_init": 0.7,
+  "N_init": 0.35,
+  "eff_init": 0.6,
+  "att_init": 1.0,
+  "tantrum_init": 0.6,
+  "defense_style": "auto",
+  "lexicon_positive": "",
+  "lexicon_negative": ""
+}
