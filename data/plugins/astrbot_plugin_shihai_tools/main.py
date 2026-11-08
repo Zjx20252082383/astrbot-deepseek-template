@@ -15,6 +15,7 @@ astrbot_plugin_uapi - UAPI 百API插件
   /uapi image.qrcode https://example.com 512
   /uapi translate.text zh 你好世界
 """
+import asyncio
 import json
 import os
 import tempfile
@@ -54,6 +55,169 @@ class UAPIPlugin(Star):
     async def terminate(self):
         """插件卸载时清理资源"""
         await self.client.close()
+
+    # ─────────────────────────────────────────────
+    # 复合工具：旅游规划（真实天气/假期/地理 + 行程编排指引）
+    # ─────────────────────────────────────────────
+
+    async def _uapi_json(self, path: str, params: dict | None = None) -> dict | None:
+        """调一个 UAPI 并返回解析后的 JSON data（失败返回 None，不抛异常）。"""
+        try:
+            r = await self.client.call(path=path, method="GET", params=params or None, json_body=None)
+            if r.get("success") and not r.get("is_binary"):
+                d = r.get("data")
+                return d if isinstance(d, dict) else None
+        except Exception as e:
+            logger.warning(f"[UAPI] {path} 调用失败: {type(e).__name__} {e}")
+        return None
+
+    @filter.llm_tool("travel_plan")
+    async def tool_travel_plan(
+        self, event: AstrMessageEvent,
+        destination: str,
+        days: str = "",
+        start_date: str = "",
+        interests: str = "",
+    ):
+        """规划旅游行程前必须先调用本工具：获取目的地的真实天气预报、假期/补班安排、行政区划数据。
+
+        返回的是真实数据 + 行程编排要求。你必须基于返回的真实天气安排每天的活动
+        （有雨/雪的日子安排室内项目），并在行程末尾提醒用户：门票/营业时间/交通
+        等信息未经核实，出行前应在官方渠道确认。绝不要在未调用本工具的情况下编造天气。
+
+        Args:
+            destination(string): 目的地城市名，如「大连」「成都」
+            days(string): 行程天数（数字，可选，如 3）
+            start_date(string): 出发日期 YYYY-MM-DD（可选，不填视为近期出发）
+            interests(string): 用户偏好（可选，如 美食 亲子 摄影 爬山 泡温泉）
+        """
+        destination = (destination or "").strip()
+        if not destination:
+            return "目的地为空，请告诉我要去哪。"
+
+        # 并行取三类真实数据
+        async def _noop():
+            return None
+
+        weather, holiday, district = await asyncio.gather(
+            self._uapi_json("/api/v1/misc/weather",
+                            {"city": destination, "forecast": "true"}),
+            self._uapi_json("/api/v1/misc/holiday-calendar",
+                            {"date": start_date, "include_nearby": "true"})
+            if start_date else _noop(),
+            self._uapi_json("/api/v1/misc/district", {"keywords": destination}),
+        )
+
+        blocks: list[str] = [f"【旅游规划数据包 · {destination}】（以下天气/假期为实时数据，直接采用）"]
+
+        # 天气（真实）
+        if weather:
+            city = weather.get("city", destination)
+            lines = [f"- 现在：{weather.get('weather')} {weather.get('temperature')}°C，"
+                     f"{weather.get('wind_direction')}{weather.get('wind_power')}，湿度{weather.get('humidity')}%"]
+            fc = weather.get("forecast") or []
+            for f_ in fc[:4]:
+                lines.append(f"- {f_.get('date')}（{f_.get('week')}）：{f_.get('weather_day')}转{f_.get('weather_night')}，"
+                             f"{f_.get('temp_min')}~{f_.get('temp_max')}°C")
+            blocks.append(f"【真实天气 · {city}】\n" + "\n".join(lines))
+        else:
+            blocks.append("【真实天气】获取失败——行程中必须提醒用户出行前自行查看天气预报。")
+
+        # 假期（真实）
+        if holiday:
+            days_ = holiday.get("days") or []
+            if days_:
+                d0 = days_[0]
+                rest = d0.get("is_rest_day")
+                rest_str = "是" if rest in (True, "true", "True", 1) else "否"
+                blocks.append(
+                    f"【真实假期信息 · {d0.get('date')}】{d0.get('weekday_cn', '')}，"
+                    f"休息日={rest_str}。"
+                    "若在法定假期内，行程必须提示：热门景点人流高峰、需提前预约门票。")
+        # 区划（真实，含消歧）
+        if district:
+            results = district.get("results") or []
+            best = next((r_ for r_ in results if r_.get("level") in ("city", "district")), results[0] if results else None)
+            if best:
+                prov = best.get("province", "")
+                blocks.append(f"【真实地理】{destination} → {prov}{best.get('city', best.get('name'))}"
+                              f"（adcode {best.get('adcode')}，坐标 {best.get('center', {}).get('lat')},{best.get('center', {}).get('lng')}）。"
+                              "行程中的地点应位于该市范围内；若用户说的地方与该定位不符，先和用户确认。")
+            if len(results) > 1:
+                others = [f"{r_.get('name')}({r_.get('province')}{r_.get('city', '')})" for r_ in results[1:3]]
+                blocks.append(f"【地名歧义提示】还有同名地点：{'、'.join(others)}——如有疑问先确认。")
+
+        # 编排要求
+        plan_req = [f"现在基于以上真实数据为用户编排 {days or '合理天数'} 天的行程：",
+                    "1. 按天划分，每天分上午/下午/晚上三段，每段一个具体地点+一句理由；",
+                    "2. 当天有雨/雪/大风时必须安排室内替代（博物馆/商场/温泉等）；",
+                    "3. 结合用户偏好安排特色（偏好：" + (interests or "未指定，均衡安排") + "）；",
+                    "4. 结尾加一行「出行提示」：穿衣（按真实温度）、预约提醒、以及「门票/营业时间未经核实，出行前请到官方渠道确认」；",
+                    "5. 不要编造门票价格和营业时间，不确定的写「建议现场确认」。"]
+        if start_date:
+            plan_req.insert(0, f"出发日期：{start_date}（按真实假期信息安排前后行程节奏）。")
+        blocks.append("【行程编排要求】\n" + "\n".join(plan_req))
+        return "\n\n".join(blocks)
+
+    # ─────────────────────────────────────────────
+    # 复合工具：商品选购（链接抓取 + 诚实路径指引）
+    # ─────────────────────────────────────────────
+
+    @filter.llm_tool("product_search")
+    async def tool_product_search(
+        self, event: AstrMessageEvent,
+        product: str,
+        budget: str = "",
+        priorities: str = "",
+        urls: str = "",
+    ):
+        """用户想买东西、求商品推荐、纠结选购时调用本工具。
+
+        返回选购辅助框架。注意：本工具不能实时比价、不能获取商品实时价格——
+        绝不要编造具体价格和优惠信息。若用户给了商品链接会尽力抓取页面标题，
+        抓不到就明说。价格永远以用户自己打开的页面为准。
+
+        Args:
+            product(string): 商品名，如「机械键盘」「猫粮」
+            budget(string): 预算（可选，如 300 元 / 1000 以内）
+            priorities(string): 用户最看重的点（可选，如 续航 静音 性价比）
+            urls(string): 用户已看中的商品链接（可选，多个用逗号分隔）
+        """
+        product = (product or "").strip()
+        if not product:
+            return "商品名为空，请说清想买什么。"
+
+        blocks = [f"【商品选购辅助 · {product}】预算：{budget or '未指定'}｜关注点：{priorities or '未指定'}"]
+
+        # 有链接：尽力抓真实标题（京东/淘宝多为 JS 渲染，抓不到就明说）
+        if urls:
+            import asyncio as _aio
+            link_list = [u.strip() for u in urls.replace("，", ",").split(",") if u.strip()][:4]
+            results = await _aio.gather(*[self._uapi_json("/api/v1/webparse/metadata", {"url": u}) for u in link_list])
+            rows = []
+            for u, r_ in zip(link_list, results):
+                if r_:
+                    title = str(r_.get("title") or "")[:80]
+                    desc = str(r_.get("description") or "")[:80]
+                    generic = ("京东" in title and "正品低价" in title) or not title
+                    if generic and not desc:
+                        rows.append(f"- {u}\n  → 页面为动态渲染，未抓到商品信息（需要用户自行打开确认标题/价格）")
+                    else:
+                        rows.append(f"- {u}\n  → 标题：{title}" + (f"\n  描述：{desc}" if desc else ""))
+                else:
+                    rows.append(f"- {u}\n  → 抓取失败（网络或反爬），需要用户自行打开确认")
+            blocks.append("【已抓取的链接信息】（真实抓取结果，抓不到的不编造）\n" + "\n".join(rows))
+
+        blocks.append(
+            "【能力边界（必须遵守）】你不能获取实时价格、库存和优惠活动；"
+            "对话中绝不报出具体价格数字。价格与活动以用户打开的商品页为准。")
+        blocks.append(
+            "【选购路径指引】给用户的回复按此结构："
+            "1) 结合 priorities 给 2-3 个选购要点（避坑项，基于常识，不确定的注明）；"
+            "2) 给 3-5 个适合在各平台搜索的具体关键词组合（品类词+品牌词+型号词组合）；"
+            "3) 建议用户在大促节点（用 holiday-calendar 工具查最近假期）或比价工具核实历史价格；"
+            "4) 若用户给了多个链接，引导用户把页面上的关键参数（型号/价格）发给你，你来帮他对比总结。")
+        return "\n\n".join(blocks)
 
     # ─────────────────────────────────────────────
     # LLM Tool 注册
