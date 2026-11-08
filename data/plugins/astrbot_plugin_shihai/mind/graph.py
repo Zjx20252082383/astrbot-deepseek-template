@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import datetime
 import json
 import os
 import re
@@ -38,19 +39,28 @@ from .emotion import LAMBDA_TYPE
 from .state import EMOTION_DIMS, clamp
 
 STOPWORDS = set(
-    "的了是在我你他她它我们你们他们这那个有和就跟不很也都就还被把让给对说要去会能可以"
-    "吗呢吧啊呀哦嗯噢喔么呐啦呗哈就是然后但是所以因为如果虽然不过还是已经正在一个一下"
-    "没有是不是好了行吧现在什么时候怎么为什么这样那样自己东西事情感觉觉得知道看看出来"
-    "起来过来下去上来回去回去有些一点非常真的直接今天明天昨天现在刚才等下等等而且或者除了"
-    "时间剩下注意记得截点还是其中其中之后以前以后上次刚刚其实应该可能需要这样那样发现觉"
-    "得开始最后问题地方工作内容消息状态参数配置主动回复请求适合有趣一样黄脸语音重新只是"
-    "还有而是对话聊天记录系统框架模型提示工具调用功能插件服务账号主人日志测试"
-    "the a an is are was were be to of and in on it this that i you he she we they "
-    "for with not have do does did so but at as or if".split()
+    # 注意：这里必须用空格分隔的"词"，不能整段无空格拼接——否则 split() 只得到
+    # 一个巨型 token，中文停用词全部失效（历史 bug：kw:觉得/已经/明天 等垃圾节点霸榜）
+    "已经 正在 一下 没有 是不是 现在 什么时候 怎么 为什么 这样 那样 自己 东西 事情 感觉 觉得 知道"
+    " 出来 起来 过来 下去 上来 回去 有些 一点 非常 真的 直接 今天 明天 昨天 刚才 等等 而且 或者 除了"
+    " 时间 剩下 注意 记得 之后 以前 以后 上次 刚刚 其实 应该 可能 需要 开始 最后 问题 地方 工作"
+    " 内容 消息 状态 参数 配置 主动 回复 请求 适合 有趣 黄脸 语音 重新 只是 还有 而是 对话 聊天 记录"
+    " 系统 框架 模型 提示 工具 调用 功能 插件 服务 账号 主人 日志 测试"
+    " 明早 明晚 明日 今早 今晚 昨晚 待会 回头 下次 改天 周末 等会儿"
+    " the a an is are was were be to of and in on it this that i you he she we they"
+    " for with not have do does did so but at as or if".split()
 )
 
 _PROMISE_RX = re.compile(r"(答应|承诺|明天|下次|改天|回头|周末|约定|记得|到时候|说了要)")
+_FAKE_PROMISE_RX = re.compile(r"记得吗|还记得|你是谁|说过吗")  # 疑问句不是承诺，别当开口由头
 _PRUNE_RX = re.compile(r"[\s\d\W_]+$")
+# 指代未来的精确时间词：含义随日期飘移，锚点过期后绝不能再当"未来的事"问（考试事故的根源）
+_DEICTIC_TOMORROW_RX = re.compile(r"明天|明早|明晚|明日")
+_DEICTIC_TODAY_RX = re.compile(r"今天|今早|今晚|待会|等会儿|等下")
+_DIARY_RX = re.compile(r"^\s*20\d{2}\s*[-年/]")  # 日记体开头（语录里混入日记段落时防御）
+# 指代时间词不能当独立记忆节点：含义随日期飘移，单独激活只会污染 G_active
+DEICTIC_KEYWORDS = {"明天", "明早", "明晚", "明日", "今天", "今早", "今晚",
+                    "昨晚", "昨天", "现在", "刚才", "待会", "等会儿", "等下"}
 
 _DIM_CN = {
     "happy": "开心", "sad": "难过", "angry": "生气",
@@ -124,6 +134,7 @@ class MemoryGraph:
                           for d in EMOTION_DIMS},
                     "created": float(nd.get("created", time.time())),
                     "last_active": float(nd.get("last_active", time.time())),
+                    "sender": str(nd.get("sender", "")),  # §9.1(c) 主体归属重启不丢
                 }
             except (TypeError, ValueError):
                 continue
@@ -156,8 +167,12 @@ class MemoryGraph:
 
     def add_observation(
         self, text: str, s_ext: Dict[str, float], now: Optional[float] = None,
+        sender: str = "owner",
     ) -> List[str]:
         """把一条用户消息写进图谱：关键词事实节点 + 事件节点（±情绪/高光节点）。
+
+        sender：消息主体（owner=主人 / other=群聊其他人 / bot=机器人自述）。
+        §9.1(c) 主体相关校验的数据基础——别人的记忆不能成为对主人开口的由头。
 
         返回本次创建/激活的节点 id 列表（供 Hebbian 共激活）。
         """
@@ -175,11 +190,11 @@ class MemoryGraph:
         if len(text) >= 6:
             # 保留较长原文：召回时才能带回完整事实细节（艾宾浩斯体感的关键）
             event_id = self._upsert_event_node(
-                "event", f"聊到：{text[:200]}", s_ext, now)
+                "event", f"聊到：{text[:200]}", s_ext, now, sender)
             touched.append(event_id)
 
         for kw in keywords:
-            kid = self._upsert_fact_node(kw, s_ext, now)
+            kid = self._upsert_fact_node(kw, s_ext, now, sender)
             touched.append(kid)
             if event_id:
                 self._strengthen(kid, event_id, self.edge_init)
@@ -193,7 +208,7 @@ class MemoryGraph:
             eid = self._upsert_event_node(
                 "emotion",
                 f"{_DIM_CN.get(e_dom, e_dom)}的时刻：{text[:160]}",
-                s_ext, now,
+                s_ext, now, sender,
             )
             touched.append(eid)
             for kw in keywords:
@@ -201,13 +216,14 @@ class MemoryGraph:
         # 高光/创伤节点：e_dom 很强才落（一生难忘级别）
         if e_val >= 0.60:
             hid = self._upsert_event_node(
-                "highlight", f"高光：{text[:160]}", s_ext, now)
+                "highlight", f"高光：{text[:160]}", s_ext, now, sender)
             touched.append(hid)
         self._cap_size()
         return touched
 
     def _upsert_node(self, nid: str, ntype: str, content: str,
-                     s_ext: Dict[str, float], now: float) -> None:
+                     s_ext: Dict[str, float], now: float,
+                     sender: str = "") -> None:
         nd = self.nodes.get(nid)
         if nd is None:
             self.nodes[nid] = {
@@ -218,24 +234,28 @@ class MemoryGraph:
                       for d in EMOTION_DIMS},
                 "created": now,
                 "last_active": now,
+                "sender": str(sender or ""),  # §9.1(c)：记忆主体归属
             }
         else:
             nd["last_active"] = now
+            if sender and not nd.get("sender"):
+                nd["sender"] = str(sender)
             # 情感标签滚动平均：旧印象为主，新刺激小幅修正
             for d in EMOTION_DIMS:
                 nd["E"][d] = clamp(
                     0.7 * nd["E"][d] + 0.3 * float(s_ext.get(d, 0.0)), 0.0, 1.0)
 
     def _upsert_fact_node(self, keyword: str, s_ext: Dict[str, float],
-                          now: float) -> str:
+                          now: float, sender: str = "") -> str:
         nid = f"kw:{keyword}"
-        self._upsert_node(nid, "fact", keyword, s_ext, now)
+        self._upsert_node(nid, "fact", keyword, s_ext, now, sender)
         return nid
 
     def _upsert_event_node(self, ntype: str, content: str,
-                           s_ext: Dict[str, float], now: float) -> str:
+                           s_ext: Dict[str, float], now: float,
+                           sender: str = "") -> str:
         nid = f"{ntype}:{int(now * 1000)}"
-        self._upsert_node(nid, ntype, content, s_ext, now)
+        self._upsert_node(nid, ntype, content, s_ext, now, sender)
         return nid
 
     def _strengthen(self, u: str, v: str, delta: float) -> None:
@@ -402,28 +422,188 @@ class MemoryGraph:
 
     # ---------- 由头锚点（§9：一次性事由，同一由头一生只出现一次） ----------
 
-    def anchor_candidates(self, now: Optional[float] = None) -> List[Dict[str, str]]:
-        """从已有数据派生一次性事由：
+    def anchor_candidates(self, now: Optional[float] = None,
+                          sender_filter: str = "owner") -> List[Dict[str, str]]:
+        """从已有数据派生一次性事由（§9.1 校验在源头执行）：
         - revisit  : 回访旧事 —— 高情感旧节点（highlight/emotion，隔天以上）
         - promise  : 承诺跟进 —— 内容里带承诺词的节点（隔 2 小时以上）
         同一节点一生只当一次锚点（used_anchors）。
+
+        §9.1 可识别性校验（缺一不进候选）：
+        (a) 节点绑定：候选必须绑定具体节点 ID + 内容摘要（本函数天然满足）
+        (b) 时间明确：节点 created 时间戳可追溯（本函数天然满足）
+        (c) 主体相关：sender_filter 非 "" 时，仅保留该主体的记忆节点
+            （群聊里别人的事不能成为对主人开口的由头）
         """
         now = now if now is not None else time.time()
         out: List[Dict[str, str]] = []
         for nid, nd in self.nodes.items():
             if nid in self.used_anchors or not nd["content"]:
                 continue
+            if nd["type"] == "quote":  # 语录是风格语料，不作为开口由头
+                continue
+            if sender_filter and nd.get("sender", "owner") not in (
+                    sender_filter, ""):  # 未知归属视为主人的（历史数据兼容）
+                continue
             age_h = (now - nd["created"]) / 3600.0
+            # 指代未来的时间词会过期："明天要考试"过完那天中午就不再是"明天"——
+            # 过期锚点直接跳过，宁可不提也不说时序错乱的话（修复考试事故）
+            if self._promise_expired(nd["content"], nd["created"], now):
+                continue
             if nd["type"] in ("highlight", "emotion") and age_h >= 24:
                 out.append({"kind": "revisit", "node": nid,
                             "content": nd["content"],
+                            "created": round(nd["created"], 1),
                             "score": nd["a"] + nd["E"].get("love", 0.0)})
-            elif _PROMISE_RX.search(nd["content"]) and age_h >= 2:
+            elif (_PROMISE_RX.search(nd["content"])
+                  and not _FAKE_PROMISE_RX.search(nd["content"])
+                  and age_h >= 2):
                 out.append({"kind": "promise", "node": nid,
                             "content": nd["content"],
+                            "created": round(nd["created"], 1),
                             "score": 0.5 + nd["a"]})
         out.sort(key=lambda c: c["score"], reverse=True)
         return out[:6]
+
+    @staticmethod
+    def _promise_expired(content: str, created: float, now: float) -> bool:
+        """指代未来的精确时间词过期判定：
+        - '明天/明早'类：只在其次日中午前有效（次日中午一过，'明天'已是过去）
+        - '今天/今晚'类：只在当日午夜前有效
+        '下次/改天/回头/周末'等开放式承诺不过期（语义本身不含精确日期）。"""
+        try:
+            dt = datetime.datetime.fromtimestamp(created)
+        except (OSError, OverflowError, ValueError):
+            return False
+        if _DEICTIC_TOMORROW_RX.search(content):
+            expiry = dt.replace(hour=12, minute=0, second=0) + datetime.timedelta(days=1)
+            return now > expiry.timestamp()
+        if _DEICTIC_TODAY_RX.search(content):
+            expiry = dt.replace(hour=23, minute=59, second=59)
+            return now > expiry.timestamp()
+        return False
+
+    @staticmethod
+    def validate_anchor(anchor: Dict[str, Any]) -> tuple:
+        """§9.1 锚点可识别性三校验（发送前最后一道闸）。返回 (ok, reason)。
+        只对"事由回访类"（node 非空应校验）执行；情绪表达类（node 为空）天然通过。"""
+        node = str((anchor or {}).get("node", "") or "")
+        if not node:
+            return True, "情绪表达类，无需锚点"  # 表 9-2：思念/关心/情绪同步不受校验
+        nd = (anchor or {}).get("_node_data") or {}
+        # (a) 节点绑定
+        if not str(nd.get("content", "") or ""):
+            return False, "(a) 节点绑定缺失：锚点无内容摘要"
+        # (b) 时间明确
+        created = nd.get("created", 0)
+        if not created or float(created) <= 0:
+            return False, "(b) 时间不明确：节点无写入时间戳"
+        # (c) 主体相关
+        if str(nd.get("sender", "owner") or "owner") not in ("owner", ""):
+            return False, "(c) 主体不符：该记忆属于其他主体，不能作为对主人开口的由头"
+        return True, "校验通过"
+
+    @staticmethod
+    def when_label(ts: float, now: Optional[float] = None) -> str:
+        """相对时间标签：让 LLM 分清记忆的过去式/现在式（修复'考完没'类时序割裂）。"""
+        now = now if now is not None else time.time()
+        h = max(0.0, (now - float(ts)) / 3600.0)
+        if h < 1:
+            return "刚刚聊过"
+        if h < 24:
+            return f"{int(h)}小时前聊过"
+        d = int(h // 24)
+        if d == 1:
+            return "昨天聊过"
+        if d <= 7:
+            return f"{d}天前聊过"
+        if d <= 30:
+            return f"{d // 7}周前聊过"
+        return f"{d // 30}个月前聊过"
+
+    def recent_events(self, now: Optional[float] = None, hours: float = 24,
+                      limit: int = 4) -> List[Dict[str, Any]]:
+        """最近聊过的话题（event/emotion/highlight，带时间标签）——意图包的
+        "最近你们聊过"数据源，让主动开口衔接当前对话、被动回复分清时序。"""
+        now = now if now is not None else time.time()
+        deadline = now - hours * 3600
+        rows = [nd for nid, nd in self.nodes.items()
+                if nd["type"] in ("event", "emotion", "highlight")
+                and nd["created"] >= deadline and nd.get("content")
+                and not nd["content"].startswith("反思：")]
+        rows.sort(key=lambda n: -n["created"])
+        return [{"content": nd["content"][:80],
+                 "when": self.when_label(nd["created"], now),
+                 "a": round(nd["a"], 3)}
+                for nd in rows[:limit]]
+
+    # ---------- 语录（§18.3 表达层：她自己的话作 few-shot 风格示例） ----------
+
+    def add_bot_event(self, text: str, s_ext: Optional[Dict[str, float]] = None,
+                      now: Optional[float] = None) -> str:
+        """她自己的行动/主动发言写入记忆（§7.5 R_t 的 bot 侧时序锚）。
+
+        只建 event 节点（sender=bot），不拆关键词 fact——行动记录不是概念
+        联想材料。让"我想"和"它做了"在记忆里接上：改签名/发说说/翻唱/
+        主动消息都会出现在下一轮意图包的"最近聊过"里，
+        消除"动的那一下我不在场"的解离叙事（11-08 观察到的架构断点）。
+        """
+        now = now if now is not None else time.time()
+        s_ext = s_ext or {}
+        content = (text or "").strip()[:200]
+        if not content:
+            return ""
+        # 同内容去重（24h 内）：行动只发生一次，记忆也只能有一次——
+        # 补录/重复回执不能制造"改了两次签名"的假记忆
+        for nid, nd in self.nodes.items():
+            if (nd["type"] == "event" and nd.get("sender") == "bot"
+                    and nd["content"] == content
+                    and now - float(nd.get("created", 0)) < 86400):
+                # 只有补录时间贴近动作发生时刻（回执重复投递）才刷新激活；
+                # 补录历史动作（相差 >1h）保持原时序，when 标签不失真
+                if abs(now - float(nd.get("created", 0))) < 3600:
+                    nd["last_active"] = now
+                return nid
+        eid = self._upsert_event_node("event", content, s_ext, now, sender="bot")
+        self._cap_size()
+        return eid
+
+    def add_quote(self, text: str, s_ext: Optional[Dict[str, float]] = None,
+                  now: Optional[float] = None) -> str:
+        """存一条她自己说过的话（type=quote，sender=bot）。
+
+        quote 是表达风格语料，不是经历记忆——被 g_active / anchor_candidates /
+        recent_events 排除，不会污染"聊过什么"的时序；只供 bot_quotes 取用。
+        """
+        now = now if now is not None else time.time()
+        s_ext = s_ext or {}
+        nid = f"quote:{int(now * 1000)}"
+        self._upsert_node(nid, "quote", (text or "").strip()[:200],
+                          s_ext, now, sender="bot")
+        return nid
+
+    def bot_quotes(self, limit: int = 4, now: Optional[float] = None) -> List[Dict[str, Any]]:
+        """最近的自我语录（带当时心情标签）——意图包"说话示例"数据源（§18.3）。"""
+        now = now if now is not None else time.time()
+        rows = [nd for nd in self.nodes.values()
+                if nd["type"] == "quote" and nd.get("content")]
+        rows.sort(key=lambda n: -n["created"])
+        out = []
+        for nd in rows[:limit * 2]:  # 多取一倍候选，过滤日记体后仍够 limit 条
+            txt = nd["content"]
+            # 语录只收聊天体短句：日记段落（日期开头/超长）会让 few-shot 把
+            # 聊天腔带成"日记腔"，甚至让她用第一人称复述架构机制（11-08 事故）
+            if _DIARY_RX.match(txt) or len(txt) > 90:
+                continue
+            e = nd.get("E", {}) or {}
+            dom = max(e, key=lambda k: float(e.get(k, 0.0))) if e else ""
+            mood = _DIM_CN.get(dom, dom) if float(e.get(dom, 0.0)) >= 0.15 else "平静"
+            out.append({"content": txt[:160],
+                        "mood": mood,
+                        "when": self.when_label(nd["created"], now)})
+            if len(out) >= limit:
+                break
+        return out
 
     def mark_anchor_used(self, node_id: str, now: Optional[float] = None) -> None:
         self.used_anchors[node_id] = float(now if now is not None else time.time())

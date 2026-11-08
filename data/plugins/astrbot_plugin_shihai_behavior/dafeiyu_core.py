@@ -5,6 +5,7 @@ import base64
 import json
 import os
 import re
+import shutil
 import tempfile
 import time
 import uuid
@@ -248,7 +249,7 @@ class DafeiyuCoreMixin:
                 return await r.read()
 
     @filter.on_llm_response()
-    async def _scrub_llm_output(self, resp):
+    async def _scrub_llm_output(self, event: AstrMessageEvent, resp):
         """最终出口兜底：剥掉模型漏出来的系统指令行/思考行（文本和语音共用这条链）。"""
         try:
             t = getattr(resp, "completion_text", None)
@@ -864,10 +865,44 @@ class DafeiyuCoreMixin:
 
     # ---------- 表情包 ----------
 
-    def _sticker_dir(self) -> str:
-        d = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stickers")
+    def _data_dir(self) -> str:
+        """表情资产统一放 plugin_data（插件目录重装/同步会被覆盖，数据会丢）。"""
+        try:
+            from astrbot.core.utils.astrbot_path import get_astrbot_plugin_data_path
+            d = os.path.join(str(get_astrbot_plugin_data_path()), "shihai_behavior")
+        except Exception:
+            d = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stickers_data")
         os.makedirs(d, exist_ok=True)
         return d
+
+    def _sticker_dir(self) -> str:
+        d = os.path.join(self._data_dir(), "stickers")
+        os.makedirs(d, exist_ok=True)
+        # 旧版图库在插件目录下：存在则整体搬迁（一次性迁移）
+        old = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stickers")
+        try:
+            if os.path.isdir(old):
+                for name in os.listdir(old):
+                    src = os.path.join(old, name)
+                    dst = os.path.join(d, name)
+                    if os.path.isfile(src) and not os.path.exists(dst):
+                        shutil.move(src, dst)
+        except Exception:
+            pass
+        return d
+
+    def _db_path(self, name: str) -> str:
+        return os.path.join(self._data_dir(), name)
+
+    def _migrate_db(self, name: str) -> None:
+        """旧版 json 在插件目录下：存在则搬到 plugin_data（一次性迁移）。"""
+        old = os.path.join(os.path.dirname(os.path.abspath(__file__)), name)
+        new = self._db_path(name)
+        try:
+            if os.path.exists(old) and not os.path.exists(new):
+                shutil.copyfile(old, new)
+        except Exception:
+            pass
 
     @staticmethod
     def _file_is_image(path: str) -> bool:
@@ -1004,42 +1039,39 @@ class DafeiyuCoreMixin:
     # ---------- 收藏表情包 ----------
 
     def _faces_db(self) -> list:
-        p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "faces.json")
+        self._migrate_db("faces.json")
         try:
-            with open(p, encoding="utf-8") as f:
+            with open(self._db_path("faces.json"), encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
             return []
 
     def _faces_save(self, items: list):
-        p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "faces.json")
-        with open(p, "w", encoding="utf-8") as f:
+        with open(self._db_path("faces.json"), "w", encoding="utf-8") as f:
             json.dump(items, f, ensure_ascii=False, indent=1)
 
     def _mfaces_db(self) -> list:
-        p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mfaces.json")
+        self._migrate_db("mfaces.json")
         try:
-            with open(p, encoding="utf-8") as f:
+            with open(self._db_path("mfaces.json"), encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
             return []
 
     def _mfaces_save(self, items: list):
-        p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mfaces.json")
-        with open(p, "w", encoding="utf-8") as f:
+        with open(self._db_path("mfaces.json"), "w", encoding="utf-8") as f:
             json.dump(items, f, ensure_ascii=False, indent=1)
 
     def _text_emotes_db(self) -> list:
-        p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "text_emotes.json")
+        self._migrate_db("text_emotes.json")
         try:
-            with open(p, encoding="utf-8") as f:
+            with open(self._db_path("text_emotes.json"), encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
             return []
 
     def _text_emotes_save(self, items: list):
-        p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "text_emotes.json")
-        with open(p, "w", encoding="utf-8") as f:
+        with open(self._db_path("text_emotes.json"), "w", encoding="utf-8") as f:
             json.dump(items, f, ensure_ascii=False, indent=1)
 
     def _find_emote_in_raw(self, event: AstrMessageEvent):

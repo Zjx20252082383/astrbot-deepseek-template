@@ -85,6 +85,21 @@ class AdaptEngine:
         short = (not positive and not strong_neg
                  and len(text) <= 3 and text in _SHORT_REPLIES)
         scale = self.eta_adapt if self.eta_adapt > 0 else 1.0
+        # —— §5.8 r_feedback 连续化映射（EgoRegulator 的输入信号）：
+        # 接续/正面评价 0.8-1.0；普通消息 0.6-0.8；短回复 0.2-0.4；强负反馈 0.0
+        if strong_neg:
+            state.r_feedback = 0.0
+        elif short:
+            state.r_feedback = clamp(state.r_feedback * 0.5 + 0.15, 0.0, 0.4)
+        elif positive:
+            state.r_feedback = clamp(state.r_feedback + 0.25, 0.6, 1.0)
+        else:
+            state.r_feedback = clamp(state.r_feedback + 0.05, 0.55, 0.8)
+        # 冲突窗口置位（§5.10.2(b)：g_avoid≥0.6 时保持 3 个决策步，否则 1 步）
+        if strong_neg or "生气" in text or "滚" in text:
+            state.conflict_steps = 3 if state.goals.get("g_avoid", 0.0) >= 0.6 else 1
+        # 正常交互清零连续未回复计数（§5.10.1 分段表的 streak）
+        state.streak_count = 0
 
         # 1) 5 分钟内主动接续对话 → 正反馈：更主动（论文§11 第1行）
         if (state.last_bot_proactive_at > 0
@@ -157,6 +172,7 @@ class AdaptEngine:
             state.theta["fire_threshold"] = new_thr
             state.streak_gate = clamp(state.streak_gate + self.streak_gate_step,
                                       0.0, 6.0)
+            state.streak_count += 1  # §5.10.1 分段表的连续未回复计数
             self.q_update(state, state.last_proactive_action or "proactive_greeting",
                           False, 1.0)
             return [{"type": "silence", "effect": f"fire_threshold→{round(new_thr, 3)}"

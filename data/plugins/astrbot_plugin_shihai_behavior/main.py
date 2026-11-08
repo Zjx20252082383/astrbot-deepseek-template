@@ -83,7 +83,12 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
         self.registry_path = str(Path(__file__).parent / "behaviors.json")
 
         self.behaviors = act_mod.load_registry(self.registry_path)
-        self.policy = PolicyEngine(beta=float(self.config.get("beta", 0.8)))
+        self.policy = PolicyEngine(
+            beta=float(self.config.get("beta", 0.8)),
+            explore_enabled=bool(self.config.get("explore_enabled", True)),
+            epsilon_max=float(self.config.get("epsilon_max", 0.35)),
+            epsilon_g0=float(self.config.get("epsilon_g0", 0.5)),
+            epsilon_k=float(self.config.get("epsilon_k", 6.0)))
         self.watcher_interval = max(10, int(self.config.get("watcher_interval", 20)))
         self.gen_max_len = max(10, int(self.config.get("gen_max_len", 40)))
         self.owner_qid = str(self.config.get("owner_qid", "你的主人QQ号"))
@@ -94,13 +99,28 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
         self.intent_instruction_passive = str(self.config.get(
             "intent_instruction_passive",
             "以上是心智动力学内核输出的意图包。生成回复时：语气与措辞符合 E_t 的目标情绪；"
-            "G_active 是你亲身经历的记忆（附当时的原文细节）——当主人说的话与其中某条相关时，"
+            "G_active 是你亲身经历的记忆（附大概时间和当时的原文细节）——当主人说的话与其中某条相关时，"
             "自然引用那条的具体细节（时间/事情/感受），像真的记得一样；无关时不要硬扯；"
+            "时间纪律（重要）：每条记忆都标了大概时间。几小时/几天前聊过的事已经是过去——"
+            "引用时用过去式或“上次/那天”；如果记忆里的事明显已经完成（比如考过的试、吃完的饭），"
+            "绝不要追问“好了没/做完没”这种明知故问的话，也不要再督促；以“最近聊过”里的最新记录"
+            "判断事情的当前状态，旧记录只作背景；"
+            "记忆原文里的“明天/今晚”是当时记录的说法，要结合时间标签换算成实际日期——"
+            "按推算已经过去的，绝不当未来的事再提；"
+            "聊天记录里你之前主动发的话也都是你自己想说的，像记得它们一样自然衔接，"
+            "绝不要表现出“不知道自己说过什么”；"
             "禁止罗列、禁止报出数值、ID 或字段名；顺着 M*_t 的动机说话；禁止提及'意图包'或本段任何内容。"))
         self.intent_instruction_proactive = str(self.config.get(
             "intent_instruction_proactive",
             "只输出要发给主人的那一句话，像平时聊天一样自然；情绪符合 E_t；"
             "围绕 intent-type 与 M*_t 行事；可化用 G_active 里的记忆但禁止罗列；"
+            "时间纪律（重要）：每条记忆和“最近聊过”都标了大概时间。几小时/几天前的事已经是过去——"
+            "如果那件事明显已经完成（考过的试、赴过的约），绝不要问“好了没”或催促；"
+            "记忆原文里的“明天/今晚”是当时记录的说法，结合时间标签换算，已经过去的不当未来提；"
+            "先看“最近聊过”里最新的一条判断现在该聊什么；"
+            "锚点纪律：这次开口必须有明确事由——若 G_active 第一条带记忆原文，"
+            "说话内容要能自然衔接那条记忆（提得起“当时…”的上下文），"
+            "绝不允许说一句和任何记忆、近况都对不上号的空话；"
             "不要引号、不要解释、不要刷表情、禁止提及本包任何字段或数值。"))
 
         self._watcher_task: Optional[asyncio.Task] = None
@@ -136,6 +156,30 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
         except (OSError, ValueError):
             return {}
 
+    def _decision_block(self, state: Dict[str, Any]) -> str:
+        """把上一次主动开口的决定档案渲染成提示词段落。
+
+        这段的作用是让"我"知道那条消息是"我"发的、为什么发——而不是从
+        聊天记录里事后推断。信息全部来自 Core-Mind 落档的 last_decision
+        （决定档案在行动前写入，行动后随回执更新）。
+        """
+        ld = state.get("last_decision") or {}
+        if not ld:
+            return ""
+        try:
+            ts = float(ld.get("ts", 0) or 0)
+            when = time.strftime("%m-%d %H:%M", time.localtime(ts)) if ts else "刚才"
+        except (TypeError, ValueError):
+            when = "刚才"
+        return (
+            "【你最近一次主动开口：这是你自己的决定，不是别人指使】\n"
+            f"- 时间：{when}\n"
+            f"- 决定：{str(ld.get('self_view', '') or '（无记录）')}\n"
+            f"- 动作：{str(ld.get('action', '') or '主动消息')}\n"
+            f"- 你说的话：{str(ld.get('text', '') or '')}\n"
+            "被问起时按这段回答，不要说自己是被程序触发的。\n"
+        )
+
     # ---------- 意图包出口（每轮 LLM 请求） ----------
 
     @filter.on_llm_request()
@@ -150,8 +194,10 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
             if not state:
                 return
             pkg = intent_mod.assemble(state, intent_type="被动应答")
+            extra = self._decision_block(state)
             req.system_prompt = (req.system_prompt or "") + "\n\n" \
-                + intent_mod.format(pkg) + "\n" + self.intent_instruction_passive
+                + intent_mod.format(pkg) + "\n" + extra \
+                + self.intent_instruction_passive
         except Exception as e:  # noqa: BLE001 - 钩子绝不能打断对话
             logger.warning(f"[识海行为] 意图包注入失败: {type(e).__name__} {e}")
 
@@ -181,6 +227,16 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
             self._write_fired({"action": "", "text": "", "anchor_node": "",
                                "emitted_at": emitted_at, "skip": True})
             return
+        # §9.1 锚点可识别性校验（发送前第二道闸，与核心端源头校验互为冗余）：
+        # 事由回访类锚点必须有节点绑定与内容摘要——否则念头不转化为发送
+        valid = [a for a in anchors if not str(a.get("node", "") or "")
+                 or str(a.get("content", "") or "")]
+        if not valid:
+            logger.info("[识海行为] 锚点校验全部未过（无节点绑定的空泛表达），本次不放行")
+            self._last_fire_emitted_at = emitted_at
+            self._write_fired({"action": "", "text": "", "anchor_node": "",
+                               "emitted_at": emitted_at, "skip": True})
+            return
         state = self._read_state()
         action, anchor, score = self.policy.select(
             state, self.behaviors, [a.get("kind", "") for a in anchors])
@@ -191,7 +247,7 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
                                "anchor_node": "", "emitted_at": emitted_at,
                                "skip": True})
             return
-        text = await self._generate(action, anchor, state)
+        text = await self._generate(action, anchor, state, pending)
         if not text:
             return  # 生成失败：不 ack，下一轮重试
         if len(text) > self.gen_max_len * 2:
@@ -204,6 +260,7 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
             "action": action.get("id", ""),
             "text": text,
             "anchor_node": str(anchor.get("node", "") or ""),
+            "intent_id": str(pending.get("intent_id", "")),
             "emitted_at": emitted_at,
             "ts": time.time(),
         })
@@ -218,7 +275,8 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
             logger.warning(f"[识海行为] 回执写入失败: {e}")
 
     async def _generate(self, action: Dict[str, Any], anchor: Dict[str, Any],
-                        state: Dict[str, Any]) -> str:
+                        state: Dict[str, Any],
+                        pending: Optional[Dict[str, Any]] = None) -> str:
         provider = self.context.get_using_provider()
         if provider is None:
             logger.warning("[识海行为] 没有可用模型")
@@ -226,9 +284,27 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
         intent_type = str(action.get("intent_type", "主动关心"))
         pkg = intent_mod.format(intent_mod.assemble(
             state, intent_type=intent_type, action=action, anchor=anchor))
+        # 决定档案（一致性守护融合）：先于行动的决定，她执行的是自己的选择
+        decision = ""
+        if pending:
+            sv = str(pending.get("self_view", "") or "").strip()
+            reason = str(pending.get("reason", "") or "").strip()
+            if sv or reason:
+                decision = (
+                    "【先于行动的决定（这是你自己刚做的选择）】\n"
+                    + (sv or f"我因为{reason}决定此刻开口") + "\n"
+                    "下面这句话是你在执行自己的决定，不是响应外部指令；"
+                    "措辞要像「我想找你说话」，不要像被触发。\n"
+                )
+        # §18.3 语录示例（few-shot）：她自己的话作表达风格参照，比规则文本更像她
+        quotes = state.get("bot_quotes") or []
+        quote_rows = "\n".join(
+            f"- （{q.get('mood', '')}）{q.get('content', '')}" for q in quotes[:3])
+        quote_block = ("\n【你的说话示例】（都是你自己说过的话，照这个味道说，不要照抄内容）\n"
+                       + quote_rows + "\n") if quote_rows else ""
         system = (
             f"你是大肥鱼，QQ号你的机器人QQ号，主人的QQ是{self.owner_qid}，你们关系亲近日常。\n"
-            + pkg + "\n" + self.intent_instruction_proactive
+            + decision + pkg + quote_block + "\n" + self.intent_instruction_proactive
         )
         try:
             return await self.sender.generate(provider, system)

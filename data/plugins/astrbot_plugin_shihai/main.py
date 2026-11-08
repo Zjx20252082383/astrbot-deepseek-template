@@ -58,6 +58,7 @@ class ShihaiPlugin(Star):
         self.graph_path = str(data_dir / "shihai_graph.json")
         self.psyche_path = str(data_dir / "psyche_state.json")
         self.fired_path = str(data_dir / "shihai_fired.json")
+        self.action_log_path = str(data_dir / "action_log.jsonl")
 
         self.engine = MindEngine(self.state_path, self.graph_path, dict(config))
         self.tick_seconds = max(30, int(config.get("tick_seconds", 60)))
@@ -97,7 +98,9 @@ class ShihaiPlugin(Star):
             if text:
                 allow_feedback = (not self.owner_only_feedback
                                   or sender == self.owner_qid)
-                self.engine.observe_user_text(text, sender, feedback=allow_feedback)
+                self.engine.observe_user_text(
+                    text, sender, feedback=allow_feedback,
+                    is_owner=(sender == self.owner_qid))
         except Exception as e:  # noqa: BLE001 - 钩子绝不能打断对话
             logger.warning(f"[识海] 感知失败: {type(e).__name__} {e}")
 
@@ -111,6 +114,7 @@ class ShihaiPlugin(Star):
                                  proactive_enabled=self.proactive_enabled,
                                  psyche_path=self.psyche_path)
                 self._consume_fired_ack()
+                self._consume_action_log()
                 await self._maybe_dream()
             except asyncio.CancelledError:
                 raise
@@ -132,6 +136,48 @@ class ShihaiPlugin(Star):
                     logger.info("[识海] 行为回执已入账：%s", sig.get("action", ""))
         except Exception as e:  # noqa: BLE001
             logger.warning(f"[识海] 回执消费失败: {type(e).__name__} {e}")
+
+    def _consume_action_log(self):
+        """消费行为插件的动作日志（action_log.jsonl：改签名/发说说/翻唱等），
+        写入图谱成为她的行动记忆（§7.5 bot 侧时序锚）——"我想"和"它做了"接上。"""
+        try:
+            import json as _json
+            import os as _os
+            if not _os.path.exists(self.action_log_path):
+                return
+            rows = []
+            with open(self.action_log_path, "r", encoding="utf-8") as fh:
+                for line in fh:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        rows.append(_json.loads(line))
+                    except ValueError:
+                        continue
+            try:
+                _os.remove(self.action_log_path)
+            except OSError:
+                pass
+            if not rows:
+                return
+            n = 0
+            for r in rows:
+                text = str(r.get("text", "")).strip()
+                if not text:
+                    continue
+                try:
+                    self.engine.graph.add_bot_event(
+                        text, dict(self.engine.state.e),
+                        float(r.get("ts", 0) or time.time()))
+                    n += 1
+                except Exception:
+                    continue
+            if n:
+                self.engine.graph.save()
+                logger.info("[识海] 行动记忆入账 %d 条（bot 侧时序锚）", n)
+        except Exception as e:
+            logger.warning(f"[识海] 动作日志消费失败: {type(e).__name__} {e}")
 
     async def _maybe_dream(self):
         """§7.3 梦境固化：每天 dream_hour 点做一次（g_memory 驱动的后台行为）。"""

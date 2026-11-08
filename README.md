@@ -36,9 +36,10 @@
 
 | 插件 | 角色 | 内容 |
 |---|---|---|
-| `astrbot_plugin_shihai` | 【识海·核心】Core-Mind | 情绪场 ODE（τ/κ/η/W）、神经图谱（扩散激活+双衰减+Hebbian+梦境固化）、念头引擎（FIRE_THRESHOLD=2.10、由头锚点）、用户反馈自适应 θ（含饱和上限 3.5）、WebUI 全参数调参 |
+| `astrbot_plugin_shihai` | 【识海·核心】Core-Mind | 情绪场 ODE（τ/κ/η/W）、神经图谱（扩散激活+双衰减+Hebbian+梦境固化）、念头引擎（FIRE_THRESHOLD=2.10、由头锚点）、EgoRegulator 自我调节（§5.10 分段放行表+防御四机制）、行动记忆入账（bot 侧时序锚）、用户反馈自适应 θ（含饱和上限 3.5）、WebUI 全参数调参 |
 | `astrbot_plugin_shihai_psyche` | 【识海·心理】 | 大五人格 ψ、依恋 att、认知失调、条件反射、防御机制、自我效能（论文 §8 六模型），psyche_tune / psyche_report / psyche_defense 工具 |
-| `astrbot_plugin_shihai_behavior` | 【识海·行为与适配】大肥鱼总成 | 涌现行为空间（behaviors.json 注册表，触发条件可配）+ 策略 π=Q+β·g·φ + **意图包出口** I_t={G_active, E_t, M*_t, P_t, intent-type} + 主动开口执行 ⊕ 工具箱套件（告状/传话/余额/语音听说唱/QQ动作/短记忆/控制台）⊕ RVC 翻唱 ⊕ 画图 ⊕ 戳一戳 |
+| `astrbot_plugin_shihai_behavior` | 【识海·行为与适配】大肥鱼总成 | 涌现行为空间（behaviors.json 注册表，触发条件可配）+ 策略 π=Q+β·g·φ + **意图包出口** I_t={G_active, E_t, M*_t, P_t, intent-type} + 决定档案注入（"这是你自己的决定"）+ 时序锚定 R_t 与指代时间词换算 + 主动开口执行 ⊕ 工具箱套件（告状/传话/余额/语音听说唱/QQ动作/表情包图库/短记忆/控制台）⊕ RVC 翻唱 ⊕ 画图 ⊕ 戳一戳 |
+| `astrbot_plugin_shihai_guard` | 【识海·守护】一致性守护层 | 四条不变量 I1 时序单调 / I2 通道隔离（quote 只走 few-shot）/ I3 表达归界（σ(ψ) 渲染表达参数）/ I4 解释权唯一 + 生成后强度降级与催促线索检出，全程只读 z(t)，审计写 guard_trace.jsonl |
 | `astrbot_plugin_shihai_tools` | 【识海·工具件】 | uapis.cn 100+ 免费 API（热榜/天气/翻译），需自行安装或从本仓取用 |
 
 **输出协议**：每轮 LLM 请求前，动力学内核输出结构化意图包 + 简短固定指令追加到 system_prompt——LLM 的动力学侧输入只有这两样（LLM 的输入只有这个结构化包，以及简短固定指令）。
@@ -225,9 +226,10 @@ class HelloPlugin(Star):
 
 | 插件 | 作用 | 来源 |
 |---|---|---|
-| `astrbot_plugin_shihai`【识海·核心】 | 心智引擎：情绪场 ODE、神经图谱记忆、念头引擎、反馈自适应（z=[e,a,θ,ψ,u,g]） | **自研，欢迎一起开发** |
+| `astrbot_plugin_shihai`【识海·核心】 | 心智引擎：情绪场 ODE、神经图谱记忆、念头引擎、Ego 自我调节、行动记忆、反馈自适应（z=[e,a,θ,ψ,u,g]） | **自研，欢迎一起开发** |
 | `astrbot_plugin_shihai_psyche`【识海·心理】 | 大五人格、依恋、防御机制、自我效能等六心理模型 | **自研，欢迎一起开发** |
-| `astrbot_plugin_shihai_behavior`【识海·行为与适配】 | 总成：涌现行为空间+意图包出口 ⊕ 工具箱（说说/语音/QQ动作/告状/短记忆/控制台）⊕ RVC 翻唱 ⊕ 画图 ⊕ 戳一戳 ⊕ 日记 | **自研，欢迎一起开发** |
+| `astrbot_plugin_shihai_behavior`【识海·行为与适配】 | 总成：涌现行为空间+意图包出口+决定档案 ⊕ 工具箱（说说/语音/QQ动作/告状/表情包图库/短记忆/控制台）⊕ RVC 翻唱 ⊕ 画图 ⊕ 戳一戳 ⊕ 日记 | **自研，欢迎一起开发** |
+| `astrbot_plugin_shihai_guard`【识海·守护】 | 一致性守护层：I1–I4 四不变量（时序单调/通道隔离/表达归界/解释权唯一）+ 生成后校验，只读 z(t)，审计 guard_trace.jsonl | **自研，欢迎一起开发** |
 | `astrbot_plugin_shihai_tools`【识海·工具件】 | 聚合小工具（热搜/天气/查QQ资料等 100+ API） | 第三方（定制改名） |
 | `astrbot_plugin_clonetts` | 声音克隆 TTS | 第三方 |
 | `astrbot_plugin_autobackup` | 自动备份 | 第三方 |

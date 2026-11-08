@@ -12,14 +12,16 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from .adapt import AdaptEngine
 from .classify import estimate_emotion
+from .ego import EgoRegulator, RHO
 from .emotion import EmotionField, LAMBDA_TYPE
 from .goals import goal_drift
-from .graph import MemoryGraph
+from .graph import DEICTIC_KEYWORDS, MemoryGraph
 from .state import DEFAULT_PSI, DEFAULT_THETA, EMOTION_DIMS, MindState, clamp
 from .urge import UrgeEngine
 
@@ -66,6 +68,12 @@ PARAM_META: Dict[str, Tuple[float, float, bool, str]] = {
     "urge_ceiling":     (1.0, 10.0, False, "念头上限（论文3.0）"),
     "streak_gate_step": (0.0, 1.0, False, "被冷落一次门槛抬升量（论文0.2）"),
     "fire_threshold":   (0.5, 3.0, False, "开口阈值基准 FIRE_THRESHOLD（论文2.10）"),
+    # —— 自我调节 EgoRegulator（整合稿 §5.10）——
+    "ego_enabled":       (0, 1, True, "自我调节总开关：1=发送须过 r_release>ρ 许可（§5.10a）"),
+    "ego_rho":           (0.1, 0.9, False, "释放判定阈值 ρ（论文0.5，严格大于）"),
+    "threshold_low_ratio": (0.3, 0.8, False, "低位拦截线比例：FIRE_THRESHOLD_LOW=比例×FIRE_THRESHOLD（论文0.5）"),
+    "delta_delay":       (0.0, 2.0, False, "r_delay 折算系数 δ：冲突/冷落期判定阈值抬升量（§5.10b）"),
+    "reflux_enabled":    (0, 1, True, "受控自我回流（§17 扩展模式，默认关；与默认配置互斥，开启须注明）"),
     "tantrum_threshold": (0.1, 2.0, False, "发脾气阈值基准（§8 实际×(1+A)）"),
     "send_threshold":   (0.0, 3.0, False, "依恋 att：回复一致性调制主动频率"),
     "eff":              (0.0, 1.0, False, "自我效能（成功+0.05/失败-0.1）"),
@@ -129,6 +137,14 @@ class MindEngine:
             reengage_step=float(cfg.get("reengage_step", 0.05)),
             streak_gate_step=float(cfg.get("streak_gate_step", 0.2)),
         )
+        # EgoRegulator（整合稿 §5.10 自我调节 + §17 受控回流）
+        self.ego = EgoRegulator(
+            rho=float(cfg.get("ego_rho", RHO)),
+            low_ratio=float(cfg.get("threshold_low_ratio", 0.5)),
+            reflux_enabled=bool(int(cfg.get("reflux_enabled", 0))),
+        )
+        self.ego_enabled = bool(int(cfg.get("ego_enabled", 1)))
+        self.delta_delay = clamp(float(cfg.get("delta_delay", 1.0)), 0.0, 2.0)
         self.care_after_hours = clamp(float(cfg.get("care_after_hours", 12)), 0.1, 168.0)
         self._last_tick_at: float = time.time()
         self._last_recall: List[Tuple[str, float]] = []
@@ -184,11 +200,12 @@ class MindEngine:
     # ---------- 输入：用户消息（回路C 的入口） ----------
 
     def observe_user_text(self, text: str, sender: str = "", now: float = 0.0,
-                          feedback: bool = True) -> Dict[str, Any]:
+                          feedback: bool = True, is_owner: bool = True) -> Dict[str, Any]:
         """一条用户消息进来：s_ext 注入 → 反馈检测 → 图谱写入 → 扩散召回 → s_int → 情绪子步。
 
         feedback=False（非主人消息且开启 owner_only_feedback）时只做感知与记忆，
         不动 θ/Q —— 论文 §11 的适配只对主人生效。
+        is_owner：消息主体归属（§9.1(c) 主体相关校验的数据基础，写入图谱节点）。
         """
         now = now or time.time()
         text = (text or "").strip()[:500]
@@ -202,7 +219,9 @@ class MindEngine:
             for ev in feedback_events:
                 if ev.get("type") in ("strong_negative", "short_reply"):
                     self._last_negative_at = now
-        touched = self.graph.add_observation(text, s_ext, now)
+        touched = self.graph.add_observation(
+            text, s_ext, now,
+            sender="owner" if is_owner else (f"other:{sender}" if sender else "other"))
         self.graph.hebbian(touched, now)
         recalled = self.graph.activate_and_spread(text, now)
         self._last_recall = recalled
@@ -255,40 +274,188 @@ class MindEngine:
                    negative_recent, self_expr_age)
         # 静默惩罚（§11 第3行）
         self.adapt.on_silence(self.state, now)
-        # 开火判定（§5.6 + 饱和上限）：写 fire_pending，行为插件消费
-        if (proactive_enabled and not suppressed and not self.state.fire_pending
-                and self.urge.should_fire(
-                    self.state.urge,
-                    self.state.theta["fire_threshold"],
-                    self.state.streak_gate,
-                    self.adapt.threshold_max)):
-            self._emit_fire_pending(now)
+        # 冲突窗口衰减（§5.10.2(b)：conflict_steps 每决策步 -1）
+        if self.state.conflict_steps > 0:
+            self.state.conflict_steps -= 1
+        # 开火判定（整合稿 §5.10a：u > 有效阈值(含 r_delay 抬升) ∧ r_release > ρ）
+        if proactive_enabled and not suppressed and not self.state.fire_pending:
+            over = self.urge.should_fire(
+                self.state.urge,
+                self.state.theta["fire_threshold"],
+                self.state.streak_gate,
+                self.adapt.threshold_max)
+            if over:
+                # r_delay 抬升判定阈值（§5.10b：FIRE ← FIRE + δ·r_delay）
+                eff_thr = (self.adapt.threshold_effective(self.state)
+                           + self.delta_delay * self._pending_r_delay())
+                over = self.state.urge > eff_thr  # 严格大于（论文口径）
+            if over:
+                r_top1 = self._last_recall[0][1] if self._last_recall else 0.0
+                decision = self.ego.decide(
+                    u=self.state.urge,
+                    fire_threshold=self.state.theta["fire_threshold"],
+                    urge_ceiling=self.urge.urge_ceiling,
+                    e=self.state.e, psi=self.state.psi, goals=self.state.goals,
+                    conflict_flag=self.state.conflict_steps > 0,
+                    streak=self.state.streak_count,
+                    r_feedback=self.state.r_feedback,
+                    r_top1=r_top1,
+                )
+                if self.ego_enabled and decision.r_release <= self.ego.rho:
+                    # 自我不许可：displacement → 替代行为（内部消化，绝不对外发送）；
+                    # 其余防御 + §17 回流（可选）→ 记审计轨迹。u 不清零（§5.10 转移规则）
+                    self._ego_intervene(decision, r_top1, now)
+                else:
+                    self._emit_fire_pending(now)
         self.state.save()
         self.graph.save()
 
+    def _pending_r_delay(self) -> float:
+        """r_delay 生成规则（§5.10.1 末）：冲突或 streak≥2 → 0.15，否则 0。"""
+        return 0.15 if (self.state.conflict_steps > 0
+                        or self.state.streak_count >= 2) else 0.0
+
+    def _ego_intervene(self, decision, r_top1: float, now: float) -> None:
+        """自我否决后的落点（整合稿 §5.10 转移规则 + §17 受控回流）。
+
+        - displacement：替代行为 = 反思节点写入图谱（p₄，零 LLM，不对外输出，表 17-3）
+        - u 不钳位不清零：念头保留在累积路径上，等 URGE_CEILING 高位分支放行
+        - reflux_enabled 时按看门狗规则调一个快原语（p₁/p₂/p₃），全部写 ego_trace
+        """
+        entries = []
+        if decision.defense == "displacement":
+            # p₄ 图谱写入（慢，小时级）：把这次冲动固化为反思记忆
+            rid = self.graph.add_observation(
+                f"反思：有点想找主人说话，但此刻{decision.branch}",
+                {d: 0.0 for d in EMOTION_DIMS}, now, sender="bot")[0:1]
+            entries.append(EgoRegulator.trace_entry(now, "p4", rid[0] if rid else "", 1.0))
+        if self.ego.reflux_enabled:
+            primitive, new_e, new_u, delta = self.ego.pick_reflux(
+                self.state.urge, self.state.e,
+                self.state.theta["fire_threshold"])
+            if primitive:
+                if primitive in ("p1", "p3"):
+                    self.state.e = new_e
+                if primitive in ("p2", "p3"):
+                    self.state.urge = new_u
+                entries.append(EgoRegulator.trace_entry(
+                    now, primitive, "e/u", delta))
+        if decision.trace:
+            entries.append({"ts": round(now, 3), "ego": decision.trace,
+                            "r_top1": round(r_top1, 3)})
+        self.state.ego_trace = self.ego.audit(
+            (self.state.ego_trace or []) + entries)
+        logger.info("[识海] 自我否决（%s）；u=%.2f 保留累积%s",
+                    decision.defense, self.state.urge,
+                    "，回流已执行" if self.ego.reflux_enabled else "")
+
     # ---------- Behavior API（论文 §13.1：核心发抽象指令，适配器执行） ----------
 
+    _ANCHOR_REASON = {
+        "revisit": "旧事在我心里又浮上来了",
+        "promise": "答应过对方的事到了该回访的时候",
+        "recent": "它有一阵没和我说话了",
+    }
+
+    # 已完成的语汇：出现即说明该事由已经了结，不能再拿它当开口理由
+    _SETTLED_RX = re.compile(r"(已经|考完|交了|做完|去过了|见过了|结束了|搞定了|办完了)")
+
+    @classmethod
+    def _drop_settled(cls, graph: "MemoryGraph", candidates: List[Dict[str, Any]],
+                      now: float) -> List[Dict[str, Any]]:
+        """剔除已被后续事实了结的由头（一致性守护 I1 的写入侧延伸）。
+
+        旧事本身没错，但"明天考试"这类事由若已被更晚的"已经考完了"覆盖，
+        再拿它当开口理由就会重现 F1（记忆错乱）。判据只用词表与时间，不调用模型。
+        与 graph 层的指代时间词过期闸（_promise_expired）互补：
+        一个管"语义上被新事实推翻"，一个管"指代词本身过期"。
+        """
+        keep: List[Dict[str, Any]] = []
+        nodes = getattr(graph, "nodes", {}) or {}
+        for c in candidates:
+            node_id = str(c.get("node", "") or "")
+            nd = nodes.get(node_id)
+            if not nd:
+                keep.append(c)
+                continue
+            created = float(nd.get("created", 0.0))
+            settled = False
+            for other_id, other in nodes.items():
+                if other_id == node_id or float(other.get("created", 0.0)) <= created:
+                    continue
+                content = str(other.get("content", ""))
+                if not cls._SETTLED_RX.search(content):
+                    continue
+                # 共享至少 2 个双字片段才认为是同一件事
+                a = {str(nd.get("content", ""))[i:i + 2] for i in range(0, 20)}
+                b = {content[i:i + 2] for i in range(0, 20)}
+                if len(a & b) >= 2:
+                    settled = True
+                    break
+            if not settled:
+                keep.append(c)
+        return keep
+
+    @classmethod
+    def _anchor_reason(cls, kind: str, content: str = "") -> str:
+        """把锚点类型翻译成第一人称理由（纯查表，不调用模型）。"""
+        base = cls._ANCHOR_REASON.get(str(kind or ""), "想起一件事")
+        text = str(content or "").strip()
+        return f"{base}（{text[:24]}）" if text else base
+
     def _emit_fire_pending(self, now: float) -> None:
-        """念头攒满 → 把"该说话了"+由头锚点候选写进状态，等行为插件取走。
-        核心不做策略选择（π 属行为层），只提供动力学事实。"""
+        """念头攒满且自我许可 → 把"该说话了"+由头锚点候选写进状态，等行为插件取走。
+        核心不做策略选择（π 属行为层），只提供动力学事实。
+        §9.1：候选在 anchor_candidates 源头已过三校验（节点绑定/时间明确/主体相关）。"""
         candidates = self.graph.anchor_candidates(now)
+        # 每个候选附带节点元数据，供行为插件生成时引用原文细节（修复上下文割裂）
+        for c in candidates:
+            nd = self.graph.nodes.get(c.get("node", ""))
+            if nd:
+                c["_node_data"] = {"content": nd.get("content", ""),
+                                   "created": nd.get("created", 0),
+                                   "sender": nd.get("sender", "owner")}
         long_silence_h = (now - self.state.last_user_msg_at) / 3600.0
         if long_silence_h >= self.care_after_hours:  # 有一阵没聊：关心近况是合法由头
             candidates.append({"kind": "recent", "node": "", "content": "",
                                "score": 0.55})
         if not candidates:
             return  # 没有任何由头：念头继续攒，等有了事由再发（不发空指令）
+        candidates = self._drop_settled(self.graph, candidates, now)
+        if not candidates:
+            return  # 全部事由都已了结：不发空指令，等新的事由
+        # 最新事实优先（I1 时序单调）：先按节点写入时刻倒序，再按 score 兜底
+        def _recency(c: Dict[str, Any]) -> float:
+            nd = self.graph.nodes.get(str(c.get("node", "") or ""), {})
+            return float(nd.get("created", 0.0))
+        candidates.sort(key=lambda c: (-_recency(c), -float(c.get("score", 0.0))))
+        top = candidates[0]
+        reason = self._anchor_reason(top.get("kind", ""), top.get("content", ""))
         self.state.fire_pending = {
             "emitted_at": now,
+            "intent_id": f"intent:{int(now * 1000)}",
+            "reason": reason,
+            "self_view": (
+                f"我在 {time.strftime('%H:%M', time.localtime(now))} 决定主动开口，"
+                f"因为{reason}；念头强度 u={self.state.urge:.2f}，"
+                f"已越过有效阈值"
+            ),
+            "recent_talks": self.graph.recent_events(now),  # 最近聊过（时序锚）
             "anchors": [
                 {"kind": c["kind"], "node": c.get("node", ""),
-                 "content": c.get("content", ""), "score": round(c.get("score", 0.0), 3)}
+                 "content": c.get("content", ""),
+                 "when": self.graph.when_label(
+                     self.graph.nodes[c["node"]]["created"], now)
+                 if c.get("node") in self.graph.nodes else "",
+                 "created": c.get("created", 0),
+                 "sender": c.get("_node_data", {}).get("sender", ""),
+                 "score": round(c.get("score", 0.0), 3)}
                 for c in candidates[:6]
             ],
             "urge": round(self.state.urge, 3),
         }
-        logger.info("[识海] 念头攒满（u=%.2f），已发 fire_pending（%d 个锚点候选）",
-                    self.state.urge, len(candidates))
+        logger.info("[识海] 念头攒满（u=%.2f），自我许可（%.2f>ρ），已发 fire_pending（%d 个锚点候选，事由：%s）",
+                    self.state.urge, 1.0, len(candidates), reason[:30])
 
     def consume_fired(self, sig: Dict[str, Any]) -> bool:
         """行为插件发完消息后的回执：清 pending、念头清零、锚点一生一次、记账待验证行为。"""
@@ -304,14 +471,34 @@ class MindEngine:
         text = str(sig.get("text", ""))
         node = str(sig.get("anchor_node", "") or "")
         now = float(sig.get("ts", 0) or time.time())
+        pending = dict(self.state.fire_pending or {})
         self.state.fire_pending = {}
         self.state.urge = 0.0
         self.state.last_bot_proactive_at = now
         self.state.last_proactive_text = text[:120]
         self.state.last_proactive_action = action
         self.state.last_proactive_replied = False
+        # 决定档案：把"我想—我做了"写在同一处，供后续自我叙事引用
+        # （"这是你自己的决定"——被动对话的她引用它来保持在场感）
+        self.state.last_decision = {
+            "intent_id": str(pending.get("intent_id", "")),
+            "reason": str(pending.get("reason", "")),
+            "self_view": str(pending.get("self_view", "")),
+            "action": action,
+            "text": text[:160],
+            "u": round(float(pending.get("urge", 0.0) or 0.0), 3),
+            "ts": now,
+        }
         if node and node in self.graph.nodes:
             self.graph.mark_anchor_used(node, now)
+        if text:
+            # §18.3 语料积累：她发出去的话存为语录（风格 few-shot 源，不进记忆时序）
+            self.graph.add_quote(text, self.state.e, now)
+            # §7.5 bot 侧时序锚：主动发言同时入记忆（进 R_t）——
+            # 被动对话的她也要"在场"，知道刚才是自己说了这句话
+            if action:
+                self.graph.add_bot_event(f"我对主人说：{text[:90]}",
+                                         self.state.e, now)
         self.state.save()
         self.graph.save()
         return True
@@ -332,30 +519,42 @@ class MindEngine:
     # ---------- 原始观测（意图包的组装属行为插件 shihai_behavior） ----------
 
     def g_active(self, anchor_node: str = "", limit: int = 5) -> List[Dict[str, Any]]:
-        """当前高激活记忆节点（附记忆 ID）——意图包 I_t 的 G_active 字段数据源。"""
+        """当前高激活记忆节点（附记忆 ID + 相对时间标签）——意图包 I_t 的 G_active 字段数据源。
+        when 标签让 LLM 分清记忆的过去式/现在式（修复"考完没"类时序割裂）。"""
+        now = time.time()
         out: List[Dict[str, Any]] = []
         seen = set()
         if anchor_node and anchor_node in self.graph.nodes:
             nd = self.graph.nodes[anchor_node]
             if nd.get("content"):
                 out.append({"id": anchor_node, "content": nd["content"][:160],
+                            "when": self.graph.when_label(nd["created"], now),
                             "a": round(nd["a"], 3)})
                 seen.add(anchor_node)
         for nid, a in self._last_recall:
             if nid in seen or nid not in self.graph.nodes:
                 continue
             nd = self.graph.nodes[nid]
+            # 指代时间词（明天/现在…）单独成节点只会污染意图包时序，全出口拦截
+            if nd.get("type") == "fact" and nd.get("content") in DEICTIC_KEYWORDS:
+                continue
             if nd.get("content"):
                 seen.add(nid)
                 out.append({"id": nid, "content": nd["content"][:160],
+                            "when": self.graph.when_label(nd["created"], now),
                             "a": round(a, 3)})
         for nid, _c, a in self.graph.top_active(6):
             if nid in seen or a < self.graph.theta_act:
                 continue
             nd = self.graph.nodes.get(nid, {})
+            if nd.get("type") == "quote":  # 语录不是经历记忆，不进 G_active
+                continue
+            if nd.get("type") == "fact" and nd.get("content") in DEICTIC_KEYWORDS:
+                continue
             if nd.get("content"):
                 seen.add(nid)
                 out.append({"id": nid, "content": nd["content"][:160],
+                            "when": self.graph.when_label(nd["created"], now),
                             "a": round(a, 3)})
         return out[:limit]
 
@@ -455,6 +654,17 @@ class MindEngine:
             self.urge.urge_ceiling = val
         elif key == "streak_gate_step":
             self.adapt.streak_gate_step = val
+        # EgoRegulator（整合稿 §5.10/§17）
+        elif key == "ego_enabled":
+            self.ego_enabled = bool(int(val))
+        elif key == "ego_rho":
+            self.ego.rho = val
+        elif key == "threshold_low_ratio":
+            self.ego.low_ratio = val
+        elif key == "delta_delay":
+            self.delta_delay = val
+        elif key == "reflux_enabled":
+            self.ego.reflux_enabled = bool(int(val))
         # θ
         elif key in ("fire_threshold", "tantrum_threshold", "send_threshold", "eff"):
             self.state.theta[key] = val
@@ -497,6 +707,8 @@ class MindEngine:
         snap["threshold_effective"] = round(
             self.adapt.threshold_effective(self.state), 3)
         snap["g_active"] = self.g_active()
+        snap["recent_talks"] = self.graph.recent_events()  # 最近聊过（带时间标签）
+        snap["bot_quotes"] = self.graph.bot_quotes()  # 自我语录（§18.3 说话示例）
         snap["graph"] = {
             "nodes": len(self.graph.nodes),
             "edges": len(self.graph.edges),

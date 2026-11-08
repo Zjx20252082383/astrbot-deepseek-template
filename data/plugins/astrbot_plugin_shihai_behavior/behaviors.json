@@ -7,6 +7,7 @@
    "intent_type": "主动关心",
    "proactive": true,
    "needs": "",
+   "novelty": 0.10,
    "phi": {
     "g_relation": 0.5,
     "g_avoid": -0.1
@@ -24,6 +25,7 @@
    "intent_type": "主动关心",
    "proactive": true,
    "needs": "",
+   "novelty": 0.10,
    "phi": {
     "g_relation": 0.7,
     "g_avoid": 0.2
@@ -41,6 +43,7 @@
    "intent_type": "主动回忆",
    "proactive": true,
    "needs": "",
+   "novelty": 0.40,
    "phi": {
     "g_memory": 0.5,
     "g_relation": 0.3
@@ -58,6 +61,7 @@
    "intent_type": "主动回忆",
    "proactive": true,
    "needs": "",
+   "novelty": 0.20,
    "phi": {
     "g_relation": 0.6,
     "g_memory": 0.3
@@ -75,6 +79,7 @@
    "intent_type": "主动关心",
    "proactive": true,
    "needs": "ai_cover",
+   "novelty": 0.60,
    "phi": {
     "g_relation": 0.4,
     "g_self": 0.3
@@ -97,6 +102,7 @@
    "intent_type": "被动应答",
    "proactive": false,
    "needs": "",
+   "novelty": 0.10,
    "phi": {
     "g_relation": 0.6,
     "g_self": 0.1
@@ -111,6 +117,7 @@
    "intent_type": "被动应答",
    "proactive": false,
    "needs": "dafeiyu",
+   "novelty": 0.30,
    "phi": {
     "g_relation": 0.3,
     "g_self": 0.2
@@ -125,6 +132,7 @@
    "intent_type": "被动应答",
    "proactive": false,
    "needs": "dafeiyu",
+   "novelty": 0.30,
    "phi": {
     "g_memory": 0.6,
     "g_self": 0.3
@@ -139,6 +147,7 @@
    "intent_type": "被动应答",
    "proactive": false,
    "needs": "dafeiyu",
+   "novelty": 0.25,
    "phi": {
     "g_self": 0.5,
     "g_relation": 0.2
@@ -153,6 +162,7 @@
    "intent_type": "被动应答",
    "proactive": false,
    "needs": "dafeiyu",
+   "novelty": 0.25,
    "phi": {
     "g_self": 0.6
    },
@@ -166,6 +176,7 @@
    "intent_type": "被动应答",
    "proactive": false,
    "needs": "",
+   "novelty": 0.40,
    "phi": {
     "g_memory": 0.9
    },

@@ -880,7 +880,23 @@ class CoverMixin:
             event, audio_path, original_name, model_name, vt, it, sp, source_key,
             source_label=f"《{song.get('name', '未知')}》-{artists or '未知歌手'}",
         )
+        if _ok:
+            # §7.5 bot 侧时序锚：翻唱成功写入行动日志（core 消费成记忆）
+            self._log_cover_action(f"我给主人唱了一首《{song.get('name', '未知')}》")
         return message
+
+    def _log_cover_action(self, text: str) -> None:
+        """把翻唱动作追加给识海核心（core 每 tick 消费成图谱 bot 节点）。"""
+        try:
+            from astrbot.core.utils.astrbot_path import get_astrbot_plugin_data_path
+            p = os.path.join(str(get_astrbot_plugin_data_path()),
+                             "shihai", "action_log.jsonl")
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p, "a", encoding="utf-8") as fp:
+                fp.write(json.dumps({"ts": time.time(), "text": text},
+                                    ensure_ascii=False) + "\n")
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[ai_cover] 行动日志写入失败: {type(e).__name__} {e}")
 
     @filter.llm_tool()
     async def tune_cover_params(

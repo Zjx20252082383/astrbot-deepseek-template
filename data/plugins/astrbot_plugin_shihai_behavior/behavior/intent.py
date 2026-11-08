@@ -31,13 +31,15 @@ def assemble(state: Dict[str, Any], intent_type: str = "被动应答",
              anchor: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """从 z(t) 快照组装意图包。state 为 mind_state.json 的内容。"""
     g_active: list = list(state.get("g_active", []) or [])
-    # 主动开口时，这次的事由（锚点）排第一位
+    # 主动开口时，这次的事由（锚点）排第一位（带时间标签）
     node = str((anchor or {}).get("node", "") or "")
     if node:
         g_active = [m for m in g_active if m.get("id") != node]
         content = str((anchor or {}).get("content", "") or "")
         if content:
-            g_active.insert(0, {"id": node, "content": content[:160], "a": 1.0})
+            g_active.insert(0, {"id": node, "content": content[:160],
+                                "when": str((anchor or {}).get("when", "") or ""),
+                                "a": 1.0})
     e = state.get("e", {}) or {}
     e_values = [float(v) for v in e.values()] or [0.0]
     e_dom = max(e, key=lambda k: float(e.get(k, 0.0)))
@@ -52,6 +54,7 @@ def assemble(state: Dict[str, Any], intent_type: str = "被动应答",
     theta = state.get("theta", {}) or {}
     return {
         "G_active": g_active[:5],
+        "recent_talks": list(state.get("recent_talks", []) or [])[:4],
         "E_t": {
             "vector": {d: round(float(v), 2) for d, v in e.items()},
             "dominant": e_dom,
@@ -69,8 +72,13 @@ def assemble(state: Dict[str, Any], intent_type: str = "被动应答",
 
 def format(pkg: Dict[str, Any]) -> str:
     """意图包 → 给 LLM 看的固定结构文本。"""
-    g_rows = "；".join(f"[{m.get('id', '')}] {m.get('content', '')}({m.get('a', 0)})"
-                       for m in pkg["G_active"]) or "无"
+    g_rows = "；".join(
+        f"[{m.get('id', '')}] {('（' + m['when'] + '）' if m.get('when') else '')}"
+        f"{m.get('content', '')}({m.get('a', 0)})"
+        for m in pkg["G_active"]) or "无"
+    talks = pkg.get("recent_talks") or []
+    talk_rows = "；".join(
+        f"{t.get('when', '')}「{t.get('content', '')}」" for t in talks) or "（近期无记录）"
     e = pkg["E_t"]
     e_str = "、".join(f"{_E_CN.get(d, d)}{int(float(v) * 100)}%"
                       for d, v in e["vector"].items() if float(v) >= 0.05) or "平静"
@@ -78,6 +86,7 @@ def format(pkg: Dict[str, Any]) -> str:
     p = pkg["P_t"]
     return (
         "【意图包 I_t】\n"
+        f"最近聊过（时序锚，注意事情的新旧）：{talk_rows}\n"
         f"G_active（高激活记忆）：{g_rows}\n"
         f"E_t（目标情绪）：{e_str}｜主导：{_E_CN.get(e['dominant'], e['dominant'])}"
         f" {int(float(e['intensity']) * 100)}%\n"

@@ -311,6 +311,28 @@ class ToolboxMixin(SuiteBase):
         history = self._toolbox_load()
         history.append(entry)
         self._toolbox_save(history)
+        # §7.5 bot 侧时序锚：自我表露类动作写入行动日志，
+        # 核心消费成记忆（"我想"和"它做了"在记忆里接上）
+        text = {
+            "signature": f"我把个性签名改成了「{entry.get('signature', '')}」",
+            "nickname": f"我把昵称改成了「{entry.get('nickname', '')}」",
+            "feed": f"我发了一条说说：{entry.get('content', '')}",
+        }.get(str(entry.get("type", "")))
+        if text:
+            self._append_action_log(text)
+
+    def _append_action_log(self, text: str) -> None:
+        """把一条行动记录追加给识海核心（core 每 tick 消费成图谱 bot 节点）。"""
+        try:
+            from astrbot.core.utils.astrbot_path import get_astrbot_plugin_data_path
+            p = os.path.join(str(get_astrbot_plugin_data_path()),
+                             "shihai", "action_log.jsonl")
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p, "a", encoding="utf-8") as fp:
+                fp.write(json.dumps({"ts": time.time(), "text": text},
+                                    ensure_ascii=False) + "\n")
+        except Exception as e:  # noqa: BLE001 - 记忆入账失败不影响动作本身
+            logger.warning(f"[qq_toolbox] 行动日志写入失败: {type(e).__name__} {e}")
 
     def _toolbox_count_today(self, kind: str, **match: Any) -> int:
         today = time.strftime("%Y-%m-%d")

@@ -1,16 +1,19 @@
-"""策略选择引擎（论文 §5.9 策略选择方程）。
+"""策略选择引擎（论文 §5.9 策略选择方程 + 整合稿 §17.4 内生探索）。
 
-    π(e, a, ψ, u, g) = argmax_x Q(e, a, x) + β·Σ_i g_i(t)·φ_i(x)
+    b* = argmax_b [ (1 − ε)·U(b) + ε·n(b) ]                        (17-3)
+    ε(g_relation) = ε_max / [1 + exp(k·(g_relation − g₀))]         (17-4)
 
-Q 来自 L_adapt（用户反馈驱动，核心 z(t) 的 q_table）；
-φ_i 是行为对第 i 维目标的贡献度（behaviors.json 里的 phi）；
-β 是目标-策略耦合系数（本插件配置）。
-物理含义：即使主人没说话，g_relation 也会驱动主动关心；
-g_avoid 在冷战后驱动主动和解、不过度打扰。
+U(b) = Q + β·Σ g_i·φ_i（§5.9 策略打分，来自 L_adapt 的 q_table 与 behaviors.json 的 phi）；
+n(b) 为动作新颖性权重（§17.4 表 17-3：绘画0.80/哼唱0.60/检索0.50/记忆整理0.40/
+反思日记0.30/对话回复0.10，behaviors.json 每行为配 novelty）；
+ε 为探索系数：g_relation 高（互动频繁）→ ε→0 优先维持关系；
+g_relation 低（长期沉默）→ ε 升至 0.30 以上 → 自发探索，避免完全沉默。
+默认 ε_max=0.35、g₀=0.5、k=6（工程先验，§17.6 未验证项：最优标定留待用户对照实验）。
 """
 
 from __future__ import annotations
 
+import math
 import random
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -18,16 +21,34 @@ from .actions import check_requires
 
 
 class PolicyEngine:
-    def __init__(self, beta: float = 0.8):
+    def __init__(self, beta: float = 0.8,
+                 explore_enabled: bool = True,
+                 epsilon_max: float = 0.35,
+                 epsilon_g0: float = 0.5,
+                 epsilon_k: float = 6.0):
         self.beta = max(0.0, min(3.0, float(beta)))
+        self.explore_enabled = bool(explore_enabled)
+        self.epsilon_max = max(0.0, min(1.0, float(epsilon_max)))
+        self.epsilon_g0 = max(0.0, min(1.0, float(epsilon_g0)))
+        self.epsilon_k = max(0.1, float(epsilon_k))
 
-    def score(self, state: Dict[str, Any], action: Dict[str, Any]) -> float:
-        """单行为打分：Q + β·(g·φ)。state 为 z(t) 快照（mind_state.json）。"""
+    def explore_epsilon(self, g_relation: float) -> float:
+        """式 17-4：探索系数由关系维护目标驱动。"""
+        if not self.explore_enabled:
+            return 0.0
+        return self.epsilon_max / (
+            1.0 + math.exp(self.epsilon_k * (float(g_relation) - self.epsilon_g0)))
+
+    def score(self, state: Dict[str, Any], action: Dict[str, Any],
+              epsilon: float = 0.0) -> float:
+        """单行为打分：U(b) = Q + β·(g·φ)；加探索项 (1−ε)·U + ε·n（式 17-3）。"""
         q = float((state.get("q_table", {}) or {}).get(action.get("id", ""), 0.0))
         g = state.get("goals", {}) or {}
         goal_term = sum(float(g.get(gid, 0.0)) * float(w)
                         for gid, w in (action.get("phi") or {}).items())
-        return q + self.beta * goal_term
+        u = q + self.beta * goal_term
+        novelty = float(action.get("novelty", 0.1))
+        return (1.0 - epsilon) * u + epsilon * novelty
 
     def select(
         self, state: Dict[str, Any], behaviors: List[Dict[str, Any]],
@@ -39,6 +60,8 @@ class PolicyEngine:
         返回 (action, 匹配的锚点, 得分)；无候选返回 (None, None, 0)。
         """
         best: Optional[Tuple[float, Dict[str, Any], Dict[str, Any]]] = None
+        eps = self.explore_epsilon(float(
+            (state.get("goals", {}) or {}).get("g_relation", 0.5)))
         for act in behaviors:
             if not act.get("enabled", True) or not act.get("proactive"):
                 continue
@@ -50,7 +73,7 @@ class PolicyEngine:
                 continue
             if not check_requires(act, state):
                 continue
-            s = self.score(state, act) + random.random() * 0.05
+            s = self.score(state, act, eps) + random.random() * 0.05
             if best is None or s > best[0]:
                 anchor = next((a for a in (state.get("fire_pending", {})
                                            or {}).get("anchors", [])
@@ -63,6 +86,8 @@ class PolicyEngine:
     def rankings(self, state: Dict[str, Any],
                  behaviors: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """全部行为打分视图（behavior_list 工具用）。"""
+        eps = self.explore_epsilon(float(
+            (state.get("goals", {}) or {}).get("g_relation", 0.5)))
         rows = []
         for act in behaviors:
             rows.append({
@@ -74,7 +99,7 @@ class PolicyEngine:
                 "needs": act.get("needs", ""),
                 "requires": act.get("requires", {}),
                 "emergent": (not act.get("needs")) and check_requires(act, state),
-                "score": round(self.score(state, act), 3),
+                "score": round(self.score(state, act, eps), 3),
                 "q": round(float((state.get("q_table", {}) or {}).get(
                     act.get("id", ""), 0.0)), 3),
             })
