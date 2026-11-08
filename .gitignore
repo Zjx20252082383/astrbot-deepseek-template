@@ -31,3 +31,4 @@ watchdog/snowluma_boot.log
 # ==== 系统杂项 ====
 Thumbs.db
 desktop.ini
+data/plugins/*/voice_cache/
