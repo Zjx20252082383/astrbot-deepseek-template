@@ -42,7 +42,7 @@ _THETA_KEY = {"eff": "eff", "att": "send_threshold", "tantrum": "tantrum_thresho
 
 @register(
     PLUGIN_NAME,
-    "zjx",
+    "识海项目组",
     "识海心理模块：大五人格/依恋/认知失调/条件反射/防御机制/自我效能（论文§8，含调参接口）",
     "1.0.0",
 )

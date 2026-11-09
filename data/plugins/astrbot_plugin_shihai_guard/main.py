@@ -62,7 +62,7 @@ def _nodes_of(graph: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 @register(
-    PLUGIN_NAME, "zjx",
+    PLUGIN_NAME, "识海项目组",
     "识海一致性守护：时序锚定 R_t + quote 隔离 + 表达归界 + 生成后校验（I1–I4）",
     "1.0.0",
 )

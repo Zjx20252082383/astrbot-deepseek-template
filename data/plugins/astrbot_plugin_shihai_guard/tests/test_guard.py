@@ -60,10 +60,18 @@ def test_quote_isolation():
 
 
 def test_persona_state_assertion():
-    bad = "你总是元气满满，绝不当冷淡。"
+    bad = "你总是元气满满，绝不生气。"
     assert persona.scan_persona(bad)["violations"] >= 2
     ok = "说话短一点，多用语气词。"
     assert persona.scan_persona(ok)["pass"]
+
+
+def test_persona_discipline_exemption():
+    """纪律命令不是人格断言：绝不+动词应豁免，绝不+情绪形容词仍报警。"""
+    discipline = "正常聊天时绝不当冷淡，绝不许复制榜单，绝不说不会。"
+    assert persona.scan_persona(discipline)["pass"]
+    state = "你绝不生气，也绝不难过。"
+    assert persona.scan_persona(state)["violations"] >= 2
 
 
 def test_style_params_bounds_and_monotonic():

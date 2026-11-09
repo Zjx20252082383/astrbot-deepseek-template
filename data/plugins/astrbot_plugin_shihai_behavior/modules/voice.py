@@ -515,7 +515,7 @@ class VoiceMixin(SuiteBase):
         return list(chain or [])
 
     def _collect_file_ids(self, event: AstrMessageEvent) -> list[str]:
-        """从原始事件里挖 record 的 file_id —— NapCat 靠它才能定位语音文件。"""
+        """从原始事件里挖 record 的 file_id —— 协议端靠它才能定位语音文件。"""
         found: list[str] = []
 
         def walk(node: Any, depth: int = 0) -> None:
@@ -593,8 +593,8 @@ class VoiceMixin(SuiteBase):
     async def _download_record(self, event: AstrMessageEvent, seg: Any) -> str | None:
         """把 Record 组件下载到本地，返回文件路径。
         
-        安卓场景：NapCat 在自己容器存 /root/xxx.amr，AstrBot 碰不到。
-        直接用 bot.call_action("get_file", file=xxx) 让 NapCat 跨容器传过来。
+        安卓场景：协议端在自己容器存 /root/xxx.amr，AstrBot 碰不到。
+        直接用 bot.call_action("get_file", file=xxx) 让协议端跨容器传过来。
         """
         from astrbot.api.message_components import Record as _Record
 
@@ -617,7 +617,7 @@ class VoiceMixin(SuiteBase):
         candidates = [c for c in candidates if isinstance(c, str) and c]
         logger.info(f"[voice] Record 下载候选: {candidates}")
 
-        # 1.5) NapCat get_record：支持 file_id / 路径 / URL，并且能直接转码 + 回 base64
+        # 1.5) 协议端 get_record：支持 file_id / 路径 / URL，并且能直接转码 + 回 base64
         if client is not None:
             for fmt in ("wav", "mp3"):
                 for fid in self._collect_file_ids(event):
@@ -641,7 +641,7 @@ class VoiceMixin(SuiteBase):
                     except Exception as exc:
                         logger.info(f"[voice] get_record(file={ref[:40]}, {fmt}) 异常: {type(exc).__name__}: {exc}")
 
-        # 2) 直接 OneBot get_file — NapCat 自己在容器里能碰到
+        # 2) 直接 OneBot get_file — 协议端自己在容器里能碰到
         if client is not None:
             for file in candidates:
                 if file.startswith(("http://", "https://", "base64://", "data:", "file://")):

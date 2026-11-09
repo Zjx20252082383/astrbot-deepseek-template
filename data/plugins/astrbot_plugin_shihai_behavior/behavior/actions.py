@@ -1,4 +1,4 @@
-"""涌现行为空间（论文 §12「24 类涌现行为」的可执行注册表）。
+"""涌现行为空间（论文 §12 的可执行注册表；当前注册 12 条，另有 46 个 LLM 工具）。
 
 涌现接口：behaviors.json 是行为注册表的唯一真源（首次运行时从默认表写出），
 每个行为声明自己的触发条件（requires：情绪阈值 / 目标阈值 / 可用锚点），
@@ -23,13 +23,13 @@ DEFAULT_BEHAVIORS: List[Dict[str, Any]] = [
         "id": "proactive_greeting", "label": "主动打招呼", "category": "主动行为",
         "intent_type": "主动关心", "proactive": True, "needs": "",
         "phi": {"g_relation": 0.5, "g_avoid": -0.1},
-        "requires": {}, "anchor": ["recent"], "enabled": True,
+        "requires": {}, "anchor": ["will", "recent"], "enabled": True,
     },
     {
         "id": "care_inquiry", "label": "关心近况", "category": "关系行为",
         "intent_type": "主动关心", "proactive": True, "needs": "",
         "phi": {"g_relation": 0.7, "g_avoid": 0.2},
-        "requires": {}, "anchor": ["recent"], "enabled": True,
+        "requires": {}, "anchor": ["will", "recent"], "enabled": True,
     },
     {
         "id": "recall_share", "label": "分享想起的旧事", "category": "主动行为",
@@ -47,8 +47,13 @@ DEFAULT_BEHAVIORS: List[Dict[str, Any]] = [
         "id": "sing_cover", "label": "唱歌给主人听", "category": "对话与表达",
         "intent_type": "主动关心", "proactive": True, "needs": "ai_cover",
         "phi": {"g_relation": 0.4, "g_self": 0.3},
-        "requires": {"emotion": {"love": 0.55}},
-        "anchor": ["recent", "revisit"], "enabled": False,
+        "requires": {}, "anchor": ["will", "recent", "revisit"], "enabled": True,
+    },
+    {
+        "id": "draw_share", "label": "画一张给你", "category": "自我表露",
+        "intent_type": "主动关心", "proactive": True, "needs": "draw",
+        "phi": {"g_self": 0.35, "g_relation": 0.2},
+        "requires": {}, "anchor": ["will", "recent"], "enabled": True,
     },
     # —— 被动/后台行为：登记在册供 π 观测与 Q 反馈，v1 不由看门狗自动触发 ——
     {"id": "chat_followup", "label": "接续话题", "category": "对话与表达",
@@ -60,9 +65,10 @@ DEFAULT_BEHAVIORS: List[Dict[str, Any]] = [
     {"id": "diary_write", "label": "写日记", "category": "自我表露",
      "intent_type": "被动应答", "proactive": False, "needs": "dafeiyu",
      "phi": {"g_memory": 0.6, "g_self": 0.3}, "requires": {}, "enabled": True},
-    {"id": "post_feed", "label": "发说说", "category": "自我表露",
-     "intent_type": "被动应答", "proactive": False, "needs": "dafeiyu",
-     "phi": {"g_self": 0.5, "g_relation": 0.2}, "requires": {}, "enabled": True},
+    {"id": "post_feed", "label": "自己发说说", "category": "自我表露",
+     "intent_type": "主动关心", "proactive": True, "needs": "qzone",
+     "phi": {"g_self": 0.5, "g_relation": 0.2}, "requires": {},
+     "anchor": ["will", "recent", "revisit"], "enabled": True},
     {"id": "set_signature", "label": "改签名", "category": "自我表露",
      "intent_type": "被动应答", "proactive": False, "needs": "dafeiyu",
      "phi": {"g_self": 0.6}, "requires": {}, "enabled": True},

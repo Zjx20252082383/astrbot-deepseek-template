@@ -2,5 +2,5 @@ name: astrbot_plugin_shihai
 display_name: 【识海·核心】心智引擎
 desc: 识海核心 Core-Mind：情绪场ODE+神经图谱+念头+自适应（z=[e,a,θ,ψ,u,g]，行为出口在 shihai_behavior）
 version: 1.1.0
-author: zjx
+author: 识海项目组
 repo: local

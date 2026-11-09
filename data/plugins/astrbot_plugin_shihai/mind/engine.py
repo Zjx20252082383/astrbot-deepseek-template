@@ -283,11 +283,18 @@ class MindEngine:
                 self.state.urge,
                 self.state.theta["fire_threshold"],
                 self.state.streak_gate,
-                self.adapt.threshold_max)
+                min(float(self.adapt.threshold_max),
+                    float(self.urge.urge_ceiling) - 0.01))
             if over:
                 # r_delay 抬升判定阈值（§5.10b：FIRE ← FIRE + δ·r_delay）
-                eff_thr = (self.adapt.threshold_effective(self.state)
-                           + self.delta_delay * self._pending_r_delay())
+                # 有效阈值永远不能顶到念头天花板：urge_ceiling=3.0 而
+                # threshold_max=3.5 时，u 被钳在 3.0 就永远跨不过 3.5，
+                # 会形成"越攒越沉默"的死锁。留 0.01 的余量保证高位可开口。
+                ceiling = float(self.urge.urge_ceiling)
+                eff_thr = min(
+                    self.adapt.threshold_effective(self.state)
+                    + self.delta_delay * self._pending_r_delay(),
+                    ceiling - 0.01)
                 over = self.state.urge > eff_thr  # 严格大于（论文口径）
             if over:
                 r_top1 = self._last_recall[0][1] if self._last_recall else 0.0
@@ -355,10 +362,28 @@ class MindEngine:
         "revisit": "旧事在我心里又浮上来了",
         "promise": "答应过对方的事到了该回访的时候",
         "recent": "它有一阵没和我说话了",
+        "will": "此刻就是很想开口，没有什么具体的事由",
     }
 
     # 已完成的语汇：出现即说明该事由已经了结，不能再拿它当开口理由
     _SETTLED_RX = re.compile(r"(已经|考完|交了|做完|去过了|见过了|结束了|搞定了|办完了)")
+    # 这些字组成的双字片段不承载"同一件事"的信息，参与比较只会制造误杀
+    _STOP_CHARS = set("了的是我你他她它在有就也都很不没和与这那什么")
+
+    @classmethod
+    def _bigrams(cls, text: str) -> set[str]:
+        """取干净的中文双字片段。
+
+        原实现用 `range(0, 20)` 直接切片，短句必然切出空串；任何含"了"
+        的句子都会共享 `""` 与 `"了"` 两个二元组，于是"惊讶的时刻"被
+        "我已经说过了"误判成同一件事而删除——由头被清空，fire_pending
+        永远写不进去。这里先去掉标点，再剔除空串和停用字片段。
+        """
+        raw = re.sub(r"[^\u4e00-\u9fa5A-Za-z0-9]", "", str(text or ""))
+        if len(raw) < 2:
+            return set()
+        grams = {raw[i:i + 2] for i in range(len(raw) - 1)}
+        return {g for g in grams if not any(ch in cls._STOP_CHARS for ch in g)}
 
     @classmethod
     def _drop_settled(cls, graph: "MemoryGraph", candidates: List[Dict[str, Any]],
@@ -386,9 +411,9 @@ class MindEngine:
                 content = str(other.get("content", ""))
                 if not cls._SETTLED_RX.search(content):
                     continue
-                # 共享至少 2 个双字片段才认为是同一件事
-                a = {str(nd.get("content", ""))[i:i + 2] for i in range(0, 20)}
-                b = {content[i:i + 2] for i in range(0, 20)}
+                # 共享至少 2 个有信息量的双字片段才认为是同一件事
+                a = cls._bigrams(nd.get("content", ""))
+                b = cls._bigrams(content)
                 if len(a & b) >= 2:
                     settled = True
                     break
@@ -419,11 +444,16 @@ class MindEngine:
         if long_silence_h >= self.care_after_hours:  # 有一阵没聊：关心近况是合法由头
             candidates.append({"kind": "recent", "node": "", "content": "",
                                "score": 0.55})
-        if not candidates:
-            return  # 没有任何由头：念头继续攒，等有了事由再发（不发空指令）
         candidates = self._drop_settled(self.graph, candidates, now)
-        if not candidates:
-            return  # 全部事由都已了结：不发空指令，等新的事由
+        low = not candidates or max(
+            float(c.get("score", 0.0)) for c in candidates) < 0.4
+        if low:
+            # 没有像样的外部由头（或候选只剩两天前一个很淡的旧影），
+            # 但念头本身已经越过阈值：允许"凭意愿"开口。
+            # 这不是空指令——u 就是这时候最真实的理由，行为层会据此选择
+            # 开口/说说/画画/唱歌，而不是把攒满的念头静默丢掉。
+            candidates = [{"kind": "will", "node": "", "content": "",
+                           "score": 0.6}]
         # 最新事实优先（I1 时序单调）：先按节点写入时刻倒序，再按 score 兜底
         def _recency(c: Dict[str, Any]) -> float:
             nd = self.graph.nodes.get(str(c.get("node", "") or ""), {})
@@ -436,7 +466,7 @@ class MindEngine:
             "intent_id": f"intent:{int(now * 1000)}",
             "reason": reason,
             "self_view": (
-                f"我在 {time.strftime('%H:%M', time.localtime(now))} 决定主动开口，"
+                f"我在 {time.strftime('%H:%M', time.localtime(now))} 决定主动向主人靠近，"
                 f"因为{reason}；念头强度 u={self.state.urge:.2f}，"
                 f"已越过有效阈值"
             ),
@@ -486,6 +516,7 @@ class MindEngine:
             "self_view": str(pending.get("self_view", "")),
             "action": action,
             "text": text[:160],
+            "song_reason": str(sig.get("reason", "") or "")[:80],
             "u": round(float(pending.get("urge", 0.0) or 0.0), 3),
             "ts": now,
         }
@@ -494,11 +525,21 @@ class MindEngine:
         if text:
             # §18.3 语料积累：她发出去的话存为语录（风格 few-shot 源，不进记忆时序）
             self.graph.add_quote(text, self.state.e, now)
-            # §7.5 bot 侧时序锚：主动发言同时入记忆（进 R_t）——
-            # 被动对话的她也要"在场"，知道刚才是自己说了这句话
-            if action:
-                self.graph.add_bot_event(f"我对主人说：{text[:90]}",
-                                         self.state.e, now)
+            # §7.5 bot 侧时序锚：主动行动同时入记忆（进 R_t）——
+            # 被动对话的她也要"在场"，知道刚才是自己做了这件事。
+            # 说说已经由 _toolbox_record 写进 action_log（避免重复入账），
+            # 其余出口按动作类型写正确的主语，不能一律说成"对主人说"。
+            if action and action != "post_feed":
+                if action == "sing_cover" and text.startswith("我"):
+                    # 唱歌出口的文本本身就是"我唱了《X》给你听"，再套前缀会重复
+                    self.graph.add_bot_event(text[:90], self.state.e, now)
+                else:
+                    prefix = {
+                        "draw_share": "我画了一张图发给主人：",
+                        "sing_cover": "我唱了一首歌给主人听：",
+                    }.get(action, "我对主人说：")
+                    self.graph.add_bot_event(f"{prefix}{text[:90]}",
+                                             self.state.e, now)
         self.state.save()
         self.graph.save()
         return True
@@ -529,6 +570,7 @@ class MindEngine:
             if nd.get("content"):
                 out.append({"id": anchor_node, "content": nd["content"][:160],
                             "when": self.graph.when_label(nd["created"], now),
+                            "sender": str(nd.get("sender", "owner") or "owner"),
                             "a": round(nd["a"], 3)})
                 seen.add(anchor_node)
         for nid, a in self._last_recall:
@@ -542,6 +584,7 @@ class MindEngine:
                 seen.add(nid)
                 out.append({"id": nid, "content": nd["content"][:160],
                             "when": self.graph.when_label(nd["created"], now),
+                            "sender": str(nd.get("sender", "owner") or "owner"),
                             "a": round(a, 3)})
         for nid, _c, a in self.graph.top_active(6):
             if nid in seen or a < self.graph.theta_act:
@@ -555,6 +598,7 @@ class MindEngine:
                 seen.add(nid)
                 out.append({"id": nid, "content": nd["content"][:160],
                             "when": self.graph.when_label(nd["created"], now),
+                            "sender": str(nd.get("sender", "owner") or "owner"),
                             "a": round(a, 3)})
         return out[:limit]
 

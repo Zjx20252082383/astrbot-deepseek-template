@@ -32,13 +32,14 @@
 
 本模板不是"提示词+工具"的普通机器人——它内置了论文《识海：融合人格心理学的 QQ 数字生命耦合动力系统》的完整实现。核心思想：**独立的状态动力学系统决定"什么时候说话、为什么说话"，大模型只负责"怎么说"**。
 
-状态向量 `z(t) = [e, a, θ, ψ, u, g]`：六维情绪场 / 神经图谱激活 / 慢演化参数 / 大五人格 / 念头强度 / 内生目标。五个方程耦合（情绪场 ODE、图谱扩散、Hebbian 边权、念头积累、自适应演化），形成四个耦合回路。由三个自研插件落地：
+状态向量 `z(t) = [e, a, θ, ψ, u, g]`：六维情绪场 / 神经图谱激活 / 慢演化参数 / 大五人格 / 念头强度 / 内生目标。五个方程耦合（情绪场 ODE、图谱扩散、Hebbian 边权、念头积累、自适应演化），形成五个耦合回路。由识海系列插件落地：
 
 | 插件 | 角色 | 内容 |
 |---|---|---|
 | `astrbot_plugin_shihai` | 【识海·核心】Core-Mind | 情绪场 ODE（τ/κ/η/W）、神经图谱（扩散激活+双衰减+Hebbian+梦境固化）、念头引擎（FIRE_THRESHOLD=2.10、由头锚点）、EgoRegulator 自我调节（§5.10 分段放行表+防御四机制）、行动记忆入账（bot 侧时序锚）、用户反馈自适应 θ（含饱和上限 3.5）、WebUI 全参数调参 |
 | `astrbot_plugin_shihai_psyche` | 【识海·心理】 | 大五人格 ψ、依恋 att、认知失调、条件反射、防御机制、自我效能（论文 §8 六模型），psyche_tune / psyche_report / psyche_defense 工具 |
-| `astrbot_plugin_shihai_behavior` | 【识海·行为与适配】大肥鱼总成 | 涌现行为空间（behaviors.json 注册表，触发条件可配）+ 策略 π=Q+β·g·φ + **意图包出口** I_t={G_active, E_t, M*_t, P_t, intent-type} + 决定档案注入（"这是你自己的决定"）+ 时序锚定 R_t 与指代时间词换算 + 主动开口执行 ⊕ 工具箱套件（告状/传话/余额/语音听说唱/QQ动作/表情包图库/短记忆/控制台）⊕ RVC 翻唱 ⊕ 画图 ⊕ 戳一戳 |
+| `astrbot_plugin_shihai_behavior` | 【识海·行为与适配】大肥鱼总成 | 涌现行为空间（behaviors.json 注册表，触发条件可配）+ 策略 π=Q+β·g·φ + **意图包出口** I_t={G_active, E_t, M*_t, P_t, intent-type} + 决定档案注入（"这是你自己的决定"）+ 时序锚定 R_t 与指代时间词换算 + 主动开口执行 ⊕ 工具箱套件（告状/传话/余额/语音听说唱/QQ动作/表情包图库/短记忆/控制台）⊕ RVC 翻唱 ⊕ 画图 ⊕ 戳一戳 ⊕ **生活任务层**（短信→任务卡→顺路取件→确认/完成→归档，`behavior/tasks.py`）⊕ **三层慢演化**（`behavior/evolution.py`，只写 overlay，可回滚） |
+| `astrbot_plugin_shihai_sms` | 【识海·信使】短信入口 | 接收手机 SmsForwarder 的 POST，解析验证码/快递/取件码，写入 `sms_records.json`，供任务层与 `/快递` 查询；token 与端口在插件配置里改 |
 | `astrbot_plugin_shihai_guard` | 【识海·守护】一致性守护层 | 四条不变量 I1 时序单调 / I2 通道隔离（quote 只走 few-shot）/ I3 表达归界（σ(ψ) 渲染表达参数）/ I4 解释权唯一 + 生成后强度降级与催促线索检出，全程只读 z(t)，审计写 guard_trace.jsonl |
 | `astrbot_plugin_shihai_tools` | 【识海·工具件】 | uapis.cn 100+ 免费 API（热榜/天气/翻译），需自行安装或从本仓取用 |
 
@@ -388,10 +389,12 @@ RVC 官方建议至少 **10 分钟低底噪语音**。每轮 60 段约几分钟�
 
 原作者目录中的以下内容**均已删除或替换为占位符**，可放心分享：
 
-- 全部 API Key（阿里云百炼 / DeepSeek / 智谱 / 博查 / 火山引擎语音克隆 / 画画）
-- 人格提示词（"大肥鱼"人格）与日记、聊天记录、会话数据库（`data_v4.db`、SnowLuma 账号数据、记忆库）
-- QQ 号、管理员 QQ、WebUI 密码与 token（AstrBot 后台已重置为 `astrbot`/`astrbot`，SnowLuma 首次启动会让你设密码）
-- NapCat 备用 QQ 客户端目录、备份 zip、日志（本方案实际使用 SnowLuma）
+- 全部 API Key（阿里云百炼 / DeepSeek / 智谱 / 博查 / 火山引擎语音克隆 / 画画）在 `data/cmd_config.json` 中均清空为 `""`
+- 人格提示词（"大肥鱼"人格）与日记、聊天记录、会话数据库（`data_v4.db`、SnowLuma 账号数据、记忆库）不随仓库发布
+- 真实 QQ 号、管理员 QQ、短信 token、观测台 token 与 WebUI 密码均已移除或改为空值；首次启动按 README 填自己的号
+- 插件作者署名统一改为「识海项目组」；`watchdog/*.ps1` 改用 `$PSScriptRoot` 相对定位，不再写死作者机器路径
+- NapCat 备用 QQ 客户端目录、备份 zip、日志不随仓库发布（本方案实际使用 SnowLuma）
+- `data/t2i_templates/base.html` 与 `snowluma/client/assets/*.js|css` 中出现的 `sk-*` 是 CSS 类名 / 前端构建产物片段，不是 API Key
 
 ## 八、常见问题
 

@@ -12,7 +12,7 @@
 1. 插件放在 `data\plugins\astrbot_plugin_shihai_sms\`，重启 AstrBot 后自动生效。
 2. 在 WebUI（`http://127.0.0.1:6185`）→ 插件管理 → 本插件 → 配置：
    - `owner_qid`：主人 QQ 号（快递报给谁）
-   - `platform_id`：平台适配器 ID（WebUI「平台」页里那台适配器的名字，当前模板用的是 `napcat`）
+   - `platform_id`：平台适配器 ID（WebUI「平台」页里那台适配器的名字，当前模板用的是 `qq`）
    - `token`：随便设一串字母数字，等下手机端也要填同样的（推荐，防别人乱发请求）
 3. 重启 AstrBot，日志里出现 `[识海信使] 短信接收服务已启动` 即成功。
 

@@ -26,14 +26,30 @@ _STATE_RX = re.compile("|".join(ABSOLUTE_MARKERS))
 # 如"绝不要追问'好了没'"是对模型的约束，不算 I3 违规
 _NEGATION_RX = re.compile(r"(禁止|不要|不得|不允许|绝不要|别|不得再|切勿)[^\n。]{0,6}$")
 
+# "绝不+动词"是行为纪律，不是状态断言：
+#   "绝不当冷淡/绝不许复制/绝不说不会/绝不抢戏/绝不允许编造"
+# 只有"绝不+情绪形容词"（绝不生气/绝不难过）才按人格断言处理。
+_DISCIPLINE_AFTER = set("当许说抢允要准能会得让把再可")
+
+
+def _is_discipline(marker: str, text: str, end: int) -> bool:
+    if marker not in ("绝不", "绝对不"):
+        return False
+    nxt = text[end:end + 1]
+    if not nxt:
+        return False
+    # "绝不要…"整体是纪律命令（保留原规则）
+    if nxt == "要":
+        return True
+    return nxt in _DISCIPLINE_AFTER
+
 
 def scan_persona(text: str) -> Dict[str, Any]:
     """S 自检：返回命中的静态断言及其上下文片段（供改写，不自动改）。"""
     hits: List[Dict[str, str]] = []
     t = text or ""
     for m in _STATE_RX.finditer(t):
-        # "绝不要…"整体是纪律命令：命中"绝不"且后跟"要"时豁免
-        if m.group(0) in ("绝不", "绝对不") and t[m.end():m.end() + 1] == "要":
+        if _is_discipline(m.group(0), t, m.end()):
             continue
         head = t[max(0, m.start() - 10):m.start()]
         if _NEGATION_RX.search(head):

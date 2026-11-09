@@ -17,7 +17,7 @@
   "platform_id": {
     "description": "平台适配器 ID",
     "type": "string",
-    "hint": "AstrBot 平台适配器的名字，如 napcat / aiocqhttp / snowluma，可在 WebUI「平台」页看到"
+    "hint": "AstrBot 平台配置里的 id（WebUI「平台」页里的实例名）。"
   },
   "report_express": {
     "description": "快递短信主动上报主人",

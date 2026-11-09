@@ -70,15 +70,21 @@ def assemble(state: Dict[str, Any], intent_type: str = "被动应答",
     }
 
 
+def _who(row: Dict[str, Any]) -> str:
+    """给记忆标主语：主人说的话不是"我"的经历，避免生成时把主人的事写成自己的。"""
+    sender = str(row.get("sender", "owner") or "owner")
+    return "我说的：" if sender == "bot" else "主人说："
+
+
 def format(pkg: Dict[str, Any]) -> str:
     """意图包 → 给 LLM 看的固定结构文本。"""
     g_rows = "；".join(
         f"[{m.get('id', '')}] {('（' + m['when'] + '）' if m.get('when') else '')}"
-        f"{m.get('content', '')}({m.get('a', 0)})"
+        f"{_who(m)}{m.get('content', '')}({m.get('a', 0)})"
         for m in pkg["G_active"]) or "无"
     talks = pkg.get("recent_talks") or []
     talk_rows = "；".join(
-        f"{t.get('when', '')}「{t.get('content', '')}」" for t in talks) or "（近期无记录）"
+        f"{t.get('when', '')}{_who(t)}「{t.get('content', '')}」" for t in talks) or "（近期无记录）"
     e = pkg["E_t"]
     e_str = "、".join(f"{_E_CN.get(d, d)}{int(float(v) * 100)}%"
                       for d, v in e["vector"].items() if float(v) >= 0.05) or "平静"

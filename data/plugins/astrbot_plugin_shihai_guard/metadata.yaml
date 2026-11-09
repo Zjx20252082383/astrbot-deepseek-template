@@ -2,5 +2,5 @@ name: astrbot_plugin_shihai_guard
 display_name: 【识海·守护】一致性守护层
 desc: 识海一致性守护：时序锚定 R_t（§7.5）+ quote 隔离（§7.6）+ 表达归界（§18）+ 生成后校验（I1–I4），只读 z(t) 不写快状态
 version: 1.0.0
-author: zjx
+author: 识海项目组
 repo: local

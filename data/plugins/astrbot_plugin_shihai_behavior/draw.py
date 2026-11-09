@@ -41,7 +41,11 @@ class DrawMixin:
         except Exception:
             pass
         try:
-            p = Path(get_astrbot_plugin_data_path()).parent / "config" / "cmd_config.json"
+            data_root = Path(get_astrbot_plugin_data_path()).parent
+            # AstrBot 4.x 的主配置在 data/cmd_config.json；旧版本可能在 data/config/
+            p = data_root / "cmd_config.json"
+            if not p.exists():
+                p = data_root / "config" / "cmd_config.json"
             cfg = json.loads(p.read_text(encoding="utf-8-sig"))
             for src in cfg.get("provider_sources", []):
                 if src.get("id") == "aliyun_bailian_source":
@@ -52,7 +56,9 @@ class DrawMixin:
             logger.warning(f"[dafeiyu_draw] 读 key 失败: {e}")
         return ""
 
-    async def _generate(self, prompt: str) -> Path:
+    async def _generate_image(self, prompt: str) -> Path:
+        # 注意：不能叫 _generate，否则会被主类 ShihaiBehaviorPlugin._generate
+        # （行为生成，签名 action/anchor/state）覆盖，画图调用必然报缺少参数
         key = self._read_key()
         if not key:
             raise RuntimeError("没有可用的百炼 key")
@@ -111,7 +117,7 @@ class DrawMixin:
         if not prompt:
             return "还没说要画什么呀。"
         try:
-            out = await self._generate(prompt)
+            out = await self._generate_image(prompt)
         except Exception as e:  # noqa: BLE001 - tool boundary
             logger.warning(f"[dafeiyu_draw] 生成失败: {e}")
             return f"画图失败了：{e}"

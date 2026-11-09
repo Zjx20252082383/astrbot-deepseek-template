@@ -43,7 +43,7 @@ def _as_bool(v: Any, default: bool) -> bool:
 
 @register(
     PLUGIN_NAME,
-    "zjx",
+    "识海项目组",
     "识海核心 Core-Mind：情绪场ODE+神经图谱+念头+自适应（z=[e,a,θ,ψ,u,g]，行为出口在 shihai_behavior）",
     "1.1.0",
 )
@@ -64,8 +64,8 @@ class ShihaiPlugin(Star):
         self.tick_seconds = max(30, int(config.get("tick_seconds", 60)))
         self.proactive_enabled = _as_bool(config.get("proactive_enabled"), False)
         self.owner_only_feedback = _as_bool(config.get("owner_only_feedback"), True)
-        self.owner_qid = str(config.get("owner_qid", "你的主人QQ号"))
-        self.bot_qid = str(config.get("bot_qid", "你的机器人QQ号"))
+        self.owner_qid = str(config.get("owner_qid", ""))
+        self.bot_qid = str(config.get("bot_qid", ""))
 
         self._tick_task: Optional[asyncio.Task] = None
 
@@ -74,6 +74,13 @@ class ShihaiPlugin(Star):
             self._web_state,
             ["GET"],
             "识海 z(t) 状态观测（情绪场/念头/目标/Q值/图谱/fire_pending）",
+        )
+        # 观测台控制通道：与 state 同源的写入口（POST），供本地控制台驱动同一份引擎实例
+        context.register_web_api(
+            f"/{PLUGIN_NAME}/cmd",
+            self._web_cmd,
+            ["POST"],
+            "识海控制通道：tune/emotion/urge/fire/suppress/release/reset_gate/dream",
         )
 
     # ---------- 生命周期 ----------
@@ -198,6 +205,90 @@ class ShihaiPlugin(Star):
             return {"status": "ok", "state": self.engine.snapshot()}
         except Exception as e:  # noqa: BLE001
             return {"status": "error", "message": str(e)}, 502
+
+    async def _web_cmd(self):
+        """观测台控制通道：直接作用在与心跳同一个 engine 实例上，改完立即落盘。"""
+        try:
+            from quart import request as _qreq
+            body = await _qreq.get_json(force=True, silent=True) or {}
+        except Exception:  # noqa: BLE001
+            body = {}
+        op = str(body.get("op") or "").strip()
+        st = self.engine.state
+        try:
+            if op == "params":
+                rows = []
+                for k, (lo, hi, is_int, desc) in sorted(PARAM_META.items()):
+                    rows.append({
+                        "key": k,
+                        "lo": lo,
+                        "hi": hi,
+                        "int": bool(is_int),
+                        "desc": desc,
+                        "value": self.engine.cfg.get(k),
+                    })
+                return {"status": "ok", "params": rows, "state": self.engine.snapshot()}
+
+            if op == "tune":
+                key = str(body.get("key") or "").strip()
+                if key not in PARAM_META:
+                    return {"status": "error", "message": f"未知参数 {key}"}, 400
+                applied = self.engine.set_param(key, float(body.get("value")))
+                self.config[key] = int(applied) if PARAM_META[key][2] else round(applied, 4)
+                try:
+                    self.config.save_config()
+                except Exception:  # noqa: BLE001
+                    pass
+                return {"status": "ok", "message": f"{key} → {applied}", "state": self.engine.snapshot()}
+
+            if op == "emotion":
+                em = str(body.get("emotion") or "").strip().lower()
+                dims = ("happy", "sad", "angry", "fear", "love", "surprise")
+                if em not in dims:
+                    return {"status": "error", "message": "emotion 非法"}, 400
+                inten = max(0.0, min(1.0, float(body.get("intensity", 0.5))))
+                s_ext = {d: (inten if d == em else 0.0) for d in dims}
+                st.e = self.engine.emotion.step(st.e, s_ext, {}, 0.2)
+                st.save()
+                return {"status": "ok", "message": f"{em}×{inten:.2f}", "state": self.engine.snapshot()}
+
+            if op == "urge":
+                delta = float(body.get("delta", 0.0))
+                st.urge = max(0.0, min(10.0, st.urge + delta))
+                st.save()
+                return {"status": "ok", "message": f"u={st.urge:.2f}", "state": self.engine.snapshot()}
+
+            if op == "fire":
+                snap = self.engine.snapshot()
+                st.urge = float(snap.get("threshold_effective", st.theta["fire_threshold"])) + 0.01
+                st.save()
+                return {"status": "ok", "message": f"已把念头推到 {st.urge:.2f}", "state": self.engine.snapshot()}
+
+            if op == "suppress":
+                mins = max(1.0, min(720.0, float(body.get("minutes", 30))))
+                st.suppress_until = time.time() + mins * 60
+                st.save()
+                return {"status": "ok", "message": f"压制 {mins:.0f} 分钟", "state": self.engine.snapshot()}
+
+            if op == "release":
+                st.suppress_until = 0.0
+                st.save()
+                return {"status": "ok", "message": "已解除压制", "state": self.engine.snapshot()}
+
+            if op == "reset_gate":
+                st.streak_gate = 0.0
+                st.streak_count = 0
+                st.conflict_steps = 0
+                st.save()
+                return {"status": "ok", "message": "冷落抬升与冲突计数已清零", "state": self.engine.snapshot()}
+
+            if op == "dream":
+                result = self.engine.dream()
+                return {"status": "ok", "message": "梦境固化完成", "result": result, "state": self.engine.snapshot()}
+
+            return {"status": "error", "message": f"未知操作 {op!r}"}, 400
+        except Exception as e:  # noqa: BLE001
+            return {"status": "error", "message": f"{type(e).__name__}: {e}"}, 502
 
     # ---------- LLM 工具：观测 ----------
 

@@ -13,7 +13,7 @@
 - 非标准 JSON / JSONP 响应解析
 - 发说说支持附图（cgi_upload_image + pic_bo/richval）
 
-依赖 NapCat / LLOneBot 等支持扩展 API 的 OneBot v11 实现（aiocqhttp 适配器）。
+依赖支持扩展 API 的 OneBot v11 实现（aiocqhttp 适配器）。
 """
 
 from __future__ import annotations
@@ -404,7 +404,7 @@ class ToolboxMixin(SuiteBase):
 
     def _guard(self, event: AstrMessageEvent) -> str | None:
         if not self._is_aiocqhttp(event):
-            return "该插件仅支持 aiocqhttp 适配器（NapCat / LLOneBot）"
+            return "该插件仅支持 aiocqhttp 适配器（OneBot v11 协议端）"
         if not self._toolbox_cfg("admin_only", True):
             return None
         if self._toolbox_is_owner(event):
@@ -549,7 +549,7 @@ class ToolboxMixin(SuiteBase):
                 break
 
         if not cookie:
-            raise RuntimeError("获取空间 Cookie 失败，请确认 NapCat 已登录且支持 get_cookies")
+            raise RuntimeError("获取空间 Cookie 失败，请确认协议端已登录且支持 get_cookies")
 
         jar = parse_cookies(cookie)
         uin = jar.get("uin", "").lstrip("oO") or str(event.get_self_id() or "").strip()
@@ -1162,12 +1162,41 @@ class ToolboxMixin(SuiteBase):
             return None
         return provider
 
-    async def _generate_post(self, event: AstrMessageEvent | None, topic: str = "") -> tuple[str, str]:
-        """让模型写一条说说，返回 (正文, 错误提示)。"""
+    async def _generate_post(self, event: AstrMessageEvent | None, topic: str = "",
+                             material: list[str] | None = None) -> tuple[str, str]:
+        """让模型写一条说说，返回 (正文, 错误提示)。
+
+        material：今天真实发生的事（来自识海图谱）。喂了素材也只许基于素材抒发，
+        没素材就只许写心情——绝不允许把"忘带伞、闹钟响"这类没发生过的事编进说说。
+        """
         prompt = str(self._toolbox_cfg("post_prompt") or "").strip() or DEFAULT_POST_PROMPT
-        system_prompt = prompt
+        persona = ""
+        try:
+            persona = str(getattr(self, "_persona_block", lambda: "")() or "").strip()
+        except Exception:  # noqa: BLE001 - 人格块只是加成
+            persona = ""
+        system_prompt = (persona + "\n" + prompt) if persona else prompt
+        system_prompt += (
+            "\n主语纪律：素材里标『主人说』的是主人的经历，不是你的；"
+            "只有标『我说』的才是你自己做过的。说说只能写你自己的感受，"
+            "绝不能把主人的事写成你做的。"
+        )
         if topic:
-            system_prompt += f"\n这次想写的主题：{topic}"
+            system_prompt += f"\n这次想写的主题：{topic}（只围绕这个主题写，不要另外编造主题之外的事件）"
+        if material:
+            lines = "\n".join(f"- {m}" for m in material[:10])
+            system_prompt += (
+                "\n【今天真实发生的事（素材来源，仅供抒发感受，不要照抄原句）】\n" + lines +
+                "\n硬性规则：说说只能写你对上面真实素材的感受，或纯粹写此刻心情；"
+                "绝不允许出现素材之外的具体事件（如忘带伞、闹钟还在响、出门、买东西这类没发生过的事）。"
+                "没有合适素材就只写心情。"
+            )
+        elif not topic:
+            system_prompt += (
+                "\n硬性规则：此刻你手上没有任何真实素材——今天没有可依据的真实经历，"
+                "所以只写此刻心情、想念或感受，绝不允许编造任何具体事件"
+                "（忘带伞、闹钟响、出门吃饭这类具体小事都没发生过，写它们就是说谎）。"
+            )
         system_prompt += (
             "\n只输出说说正文本身，一句话到两句话，不加引号、不加标题、不加话题标签，也不要解释。"
         )
@@ -1182,6 +1211,8 @@ class ToolboxMixin(SuiteBase):
             return "", "模型那边没写出东西来。用你的口吻说一句等会儿再试，别提技术细节。"
 
         text = str(getattr(resp, "completion_text", "") or "").strip()
+        text = re.sub(r"<think>[\s\S]*?</think>", "", text)  # 推理内容整体剔除
+        text = re.sub(r"</?think>", "", text)  # 残留的半个推理标记
         text = re.sub(r"```[a-zA-Z]*\s*", "", text).strip()
         text = text.strip("\"'“”「」")
         for prefix in ("说说：", "说说:", "正文：", "正文:"):
@@ -1203,6 +1234,11 @@ class ToolboxMixin(SuiteBase):
     # ---------------- 主动心情动态（定时自己发说说） -----------------------------
 
     def _toolbox_auto_start(self) -> None:
+        # 旧的随机定时说说已由"念头→行为"链路取代；开关关掉时连任务都不起，
+        # 避免后台每 25~45 分钟空转一次。
+        if not bool(self._toolbox_cfg("auto_post_enabled", True)):
+            logger.info("[qq_toolbox] 随机定时说说已停用，改由识海念头驱动")
+            return
         if self._toolbox_auto_task is None or self._toolbox_auto_task.done():
             self._toolbox_auto_task = asyncio.create_task(self._auto_post_loop())
 
@@ -1262,11 +1298,80 @@ class ToolboxMixin(SuiteBase):
                     await asyncio.sleep(7200)  # 连续失败歇 2 小时，防风控防刷日志
                     failures = 0
 
+    def _today_real_material(self) -> list[str]:
+        """从识海图谱取今天的真实事件（主人聊过的事 + 她自己做过的事），作说说素材。
+
+        读的就是核心插件落盘的 shihai_graph.json——只读，不碰引擎内存。
+        """
+        try:
+            from astrbot.core.utils.astrbot_path import get_astrbot_plugin_data_path
+            p = os.path.join(str(get_astrbot_plugin_data_path()),
+                             "shihai", "shihai_graph.json")
+            with open(p, "r", encoding="utf-8") as fp:
+                data = json.load(fp)
+            nodes = data.get("nodes", {}) if isinstance(data, dict) else {}
+            day_start = time.mktime(time.strptime(time.strftime("%Y-%m-%d"), "%Y-%m-%d"))
+            rows = []
+            for nd in nodes.values():
+                if not isinstance(nd, dict) or str(nd.get("type", "")) != "event":
+                    continue
+                created = float(nd.get("created", 0) or 0)
+                if created < day_start:
+                    continue
+                content = str(nd.get("content", "")).strip()
+                if not content:
+                    continue
+                hhmm = time.strftime("%H:%M", time.localtime(created))
+                who = "我说" if str(nd.get("sender", "") or "") == "bot" else "主人说"
+                rows.append((created, f"({hhmm}){who}：{content}"))
+            rows.sort(key=lambda r: -r[0])
+            return [c for _, c in rows[:12]]
+        except Exception as e:  # noqa: BLE001 - 素材读取失败按无素材处理
+            logger.warning(f"[qq_toolbox] 读取今日素材失败: {type(e).__name__} {e}")
+            return []
+
+    async def _reality_check(self, event: AstrMessageEvent | None,
+                             text: str, material: list[str]) -> bool:
+        """发出去之前先问一句"真有这事儿吗"：对照真实素材反证说说有没有编造具体事件。
+
+        她自己的原话是"在发出去之前先问我一句，真有这事儿吗？没有就别发"——
+        本方法就是那道闸。纯心情/感慨/对素材的感受放行，编造事件拦截。
+        """
+        provider = self._llm_provider(event)
+        if provider is None:
+            logger.warning("[qq_toolbox] 反证自检没有可用模型，按不通过处理（fail-closed）")
+            return False
+        material_text = "\n".join(f"- {m}" for m in material[:10]) or "（无）"
+        ask = (
+            "下面是一位用户今天真实经历的事件记录：\n" + material_text +
+            f"\n\n她准备发一条空间说说：「{text}」\n"
+            "判断这条说说是否声称了记录之外的具体事件"
+            "（例如忘带伞、闹钟还在响、出门吃饭这类记录里没有的具体小事）。"
+            "纯心情、感慨、想念、对记录内事件的感受都算合规。\n"
+            "只回答一个词：合规回答 KEEP，编造了事件回答 DROP。"
+        )
+        try:
+            resp = await provider.text_chat(system_prompt=ask, contexts=[])
+            verdict = str(getattr(resp, "completion_text", "") or "").strip().upper()
+            return "DROP" not in verdict
+        except Exception as exc:  # noqa: BLE001 - 自检失败按不通过处理，宁可不发
+            logger.warning(f"[qq_toolbox] 说说反证自检失败（按不通过处理）: {type(exc).__name__} {exc}")
+            return False
+
     async def _auto_post_once(self, bot: Any) -> None:
+        # 闸一：没有真实素材就不发——没话想说就闭嘴，绝不拿模板编生活
+        material = self._today_real_material()
+        if not material:
+            logger.info("[qq_toolbox] 今天还没有真实素材（没聊过天、没做过事），这轮主动说说跳过")
+            return
         event = _SelfBotEvent(bot, self._toolbox_self_id)
-        text, err = await self._generate_post(event, "")
+        text, err = await self._generate_post(event, "", material=material)
         if err or not text:
             logger.warning(f"[qq_toolbox] 主动说说没写出来：{err or '模型返回为空'}")
+            return
+        # 闸二：发前反证自检——"真有这事儿吗？没有就别发"
+        if not await self._reality_check(event, text, material):
+            logger.info(f"[qq_toolbox] 反证自检未通过（编造了素材外事件），这条说说没发：{text[:40]}")
             return
         result = await self._post_feed(event, text, [], speaker="self")
         if "发出去了" in result:

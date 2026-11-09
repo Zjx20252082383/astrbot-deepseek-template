@@ -193,7 +193,7 @@ class SuiteBase:
 
     @staticmethod
     def onebot_client(event: Any) -> Any:
-        """从当前事件上拿 OneBot v11 客户端（NapCat / LLOneBot）。"""
+        """从当前事件上拿 OneBot v11 客户端（协议端）。"""
         bot = getattr(event, "bot", None)
         if bot is not None:
             api = getattr(bot, "api", None) or bot

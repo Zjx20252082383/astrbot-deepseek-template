@@ -1,5 +1,5 @@
-﻿﻿﻿﻿# Bot watchdog: checks RVC / AstrBot / NapCat every run, restarts if down.
-$base = "E:\Users\zjx\Desktop\deepseek接QQ小号"
+﻿﻿﻿# Bot watchdog: checks RVC / AstrBot / NapCat every run, restarts if down.
+$base = Split-Path -Parent $PSScriptRoot
 $log = "$base\data\watchdog.log"
 $wd = "$base\watchdog"
 

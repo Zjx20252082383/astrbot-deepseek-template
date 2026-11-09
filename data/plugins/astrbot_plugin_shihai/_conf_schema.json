@@ -20,76 +20,107 @@
   "owner_qid": {
     "description": "主人 QQ 号",
     "type": "string",
-    "default": "你的主人QQ号",
+    "default": "",
     "hint": "主动开口发给谁、谁的反馈驱动 θ 自适应。"
   },
   "platform_id": {
     "description": "消息平台 ID",
     "type": "string",
-    "default": "napcat",
+    "default": "qq",
     "hint": "AstrBot 平台配置里的 id（WebUI→消息平台 可查），用于拼接主动消息的会话地址。"
   },
   "bot_qid": {
     "description": "机器人自己的 QQ 号",
     "type": "string",
-    "default": "你的机器人QQ号",
+    "default": "",
     "hint": "自我回声防护：自己的消息不进情绪场，防止自言自语烧 token。"
   },
-
   "tau_happy": {
     "description": "τ 开心（小时）",
     "type": "float",
     "default": 6.0,
-    "slider": {"min": 0.5, "max": 48, "step": 0.5},
+    "slider": {
+      "min": 0.5,
+      "max": 48,
+      "step": 0.5
+    },
     "hint": "论文§6：无刺激时开心自然消退的时间常数。表扬越多、τ 内开心越浓。"
   },
   "tau_sad": {
     "description": "τ 难过（小时）",
     "type": "float",
     "default": 12.0,
-    "slider": {"min": 0.5, "max": 48, "step": 0.5},
+    "slider": {
+      "min": 0.5,
+      "max": 48,
+      "step": 0.5
+    },
     "hint": "论文§6：难过 12h，比开心消退慢——坏心情记得更久。"
   },
   "tau_angry": {
     "description": "τ 生气（小时）",
     "type": "float",
     "default": 2.0,
-    "slider": {"min": 0.5, "max": 48, "step": 0.5},
+    "slider": {
+      "min": 0.5,
+      "max": 48,
+      "step": 0.5
+    },
     "hint": "论文§6：生气 2h 消退最快。"
   },
   "tau_fear": {
     "description": "τ 害怕（小时）",
     "type": "float",
     "default": 3.0,
-    "slider": {"min": 0.5, "max": 48, "step": 0.5},
+    "slider": {
+      "min": 0.5,
+      "max": 48,
+      "step": 0.5
+    },
     "hint": "论文§6 基准 3h；§8 会再乘 (1+N)，神经质越高怕得越久。"
   },
   "tau_love": {
     "description": "τ 依恋（小时）",
     "type": "float",
     "default": 24.0,
-    "slider": {"min": 0.5, "max": 72, "step": 0.5},
+    "slider": {
+      "min": 0.5,
+      "max": 72,
+      "step": 0.5
+    },
     "hint": "论文§6：love=24h 全场最长——好感消退最慢，是'陪伴感'的数学基础。"
   },
   "tau_surprise": {
     "description": "τ 惊讶（小时）",
     "type": "float",
     "default": 1.0,
-    "slider": {"min": 0.5, "max": 48, "step": 0.5},
+    "slider": {
+      "min": 0.5,
+      "max": 48,
+      "step": 0.5
+    },
     "hint": "论文未指定，默认 1h：惊讶来得快去得快。"
   },
   "kappa": {
     "description": "κ 刺激增益",
     "type": "float",
     "default": 2.5,
-    "slider": {"min": 0, "max": 5, "step": 0.1},
+    "slider": {
+      "min": 0,
+      "max": 5,
+      "step": 0.1
+    },
     "hint": "论文§5.1：外部/内部刺激对情绪的影响强度。自洽报告§6：±20% 摄动无发散，对精度不敏感。"
   },
   "eta_relax": {
     "description": "η 情绪自相关",
     "type": "float",
     "default": 0.15,
-    "slider": {"min": 0, "max": 1, "step": 0.01},
+    "slider": {
+      "min": 0,
+      "max": 1,
+      "step": 0.01
+    },
     "hint": "论文§5.1：情绪互激励惯性（love↔happy、fear↔anger 联动）。"
   },
   "w_matrix": {
@@ -98,118 +129,180 @@
     "default": "",
     "hint": "6×6 矩阵 JSON，键=受激情绪，如 {\"happy\":{\"love\":0.15,\"surprise\":0.1}}。留空用内置默认（love↔happy、fear↔angry 正相关）。"
   },
-
   "lambda_fact": {
     "description": "λ 事实节点衰减/h",
     "type": "float",
     "default": 0.1,
-    "slider": {"min": 0, "max": 1, "step": 0.01},
+    "slider": {
+      "min": 0,
+      "max": 1,
+      "step": 0.01
+    },
     "hint": "论文§7.2：'昨晚吃了6.8元的菜'这类细节，一个月后遗忘。"
   },
   "lambda_emotion": {
     "description": "λ 情绪节点衰减/h",
     "type": "float",
     "default": 0.01,
-    "slider": {"min": 0, "max": 1, "step": 0.005},
+    "slider": {
+      "min": 0,
+      "max": 1,
+      "step": 0.005
+    },
     "hint": "论文§7.2：'当时吃得很心酸'的情感印象长期保留。"
   },
   "lambda_event": {
     "description": "λ 事件节点衰减/h",
     "type": "float",
     "default": 0.05,
-    "slider": {"min": 0, "max": 1, "step": 0.005},
+    "slider": {
+      "min": 0,
+      "max": 1,
+      "step": 0.005
+    },
     "hint": "论文§7.2：'昨天聊了天'模糊保留。"
   },
   "lambda_highlight": {
     "description": "λ 高光节点衰减/h",
     "type": "float",
     "default": 0.005,
-    "slider": {"min": 0, "max": 1, "step": 0.005},
+    "slider": {
+      "min": 0,
+      "max": 1,
+      "step": 0.005
+    },
     "hint": "论文§7.2：'拿了满分'/'被骂了'长期难忘。"
   },
   "alpha_coupling": {
     "description": "α 情绪-衰减耦合",
     "type": "float",
     "default": 3.0,
-    "slider": {"min": 0, "max": 10, "step": 0.1},
+    "slider": {
+      "min": 0,
+      "max": 10,
+      "step": 0.1
+    },
     "hint": "论文§5.4：λ_v(e)=λ_type/(1+α·e_dom·E_v)。开心时美好记忆衰减更慢。"
   },
   "gamma_hebbian": {
     "description": "γ Hebbian 学习率",
     "type": "float",
     "default": 0.06,
-    "slider": {"min": 0, "max": 0.5, "step": 0.01},
+    "slider": {
+      "min": 0,
+      "max": 0.5,
+      "step": 0.01
+    },
     "hint": "论文§5.5：一起放电的神经元连在一起——共激活一次，边权+γ。"
   },
   "theta_act": {
     "description": "θ_act 激活阈值",
     "type": "float",
     "default": 0.3,
-    "slider": {"min": 0, "max": 1, "step": 0.05},
+    "slider": {
+      "min": 0,
+      "max": 1,
+      "step": 0.05
+    },
     "hint": "论文§5.5：a>θ_act 才算被'点亮'，才参与 Hebbian 强化。"
   },
   "edge_init": {
     "description": "新边初始权重",
     "type": "float",
     "default": 0.25,
-    "slider": {"min": 0.01, "max": 1, "step": 0.01},
+    "slider": {
+      "min": 0.01,
+      "max": 1,
+      "step": 0.01
+    },
     "hint": "同一条消息里共现的概念之间，新建突触的初始强度。"
   },
   "w_max": {
     "description": "边权上限",
     "type": "float",
     "default": 2.5,
-    "slider": {"min": 0.1, "max": 5, "step": 0.1},
+    "slider": {
+      "min": 0.1,
+      "max": 5,
+      "step": 0.1
+    },
     "hint": "突触强度封顶，防止某些边独大。"
   },
   "recall_k": {
     "description": "召回 top-k",
     "type": "int",
     "default": 8,
-    "slider": {"min": 1, "max": 20, "step": 1},
+    "slider": {
+      "min": 1,
+      "max": 20,
+      "step": 1
+    },
     "hint": "论文§5.2 Recall(G,k)：每次扩散激活召回几个节点参与情绪注入。"
   },
   "spread_hops": {
     "description": "扩散跳数",
     "type": "int",
     "default": 2,
-    "slider": {"min": 1, "max": 3, "step": 1},
+    "slider": {
+      "min": 1,
+      "max": 3,
+      "step": 1
+    },
     "hint": "从种子概念沿突触扩散几轮。跳数越大联想越远。"
   },
   "max_keywords_per_msg": {
     "description": "每条消息关键词上限",
     "type": "int",
     "default": 8,
-    "slider": {"min": 1, "max": 12, "step": 1},
+    "slider": {
+      "min": 1,
+      "max": 12,
+      "step": 1
+    },
     "hint": "写入图谱的关键词 fact 节点数上限（jieba 分词，零 LLM）。"
   },
   "prune_edge_below": {
     "description": "梦境修剪阈值",
     "type": "float",
     "default": 0.1,
-    "slider": {"min": 0, "max": 1, "step": 0.01},
+    "slider": {
+      "min": 0,
+      "max": 1,
+      "step": 0.01
+    },
     "hint": "论文§7.3：夜间固化时修剪低于此权重的弱边。"
   },
   "node_retention_days": {
     "description": "死节点保留天数",
     "type": "int",
     "default": 180,
-    "slider": {"min": 7, "max": 3650, "step": 1},
+    "slider": {
+      "min": 7,
+      "max": 3650,
+      "step": 1
+    },
     "hint": "激活耗尽且超过天数未活跃的节点在梦境时清理。"
   },
   "dream_hour": {
     "description": "梦境固化时刻（点）",
     "type": "int",
     "default": 3,
-    "slider": {"min": 0, "max": 23, "step": 1},
+    "slider": {
+      "min": 0,
+      "max": 23,
+      "step": 1
+    },
     "hint": "论文§5.9：g_memory 驱动凌晨梦境固化。每天这个点自动做一次。"
   },
-
   "fire_threshold": {
     "description": "FIRE_THRESHOLD 开口阈值",
     "type": "float",
     "default": 2.1,
-    "slider": {"min": 0.5, "max": 3, "step": 0.05},
+    "slider": {
+      "min": 0.5,
+      "max": 3,
+      "step": 0.05
+    },
     "hint": "论文§9：念头攒到此值才主动开口。θ 自适应会在线调整它。"
   },
   "ego_enabled": {
@@ -222,21 +315,33 @@
     "description": "释放判定阈值 ρ",
     "type": "float",
     "default": 0.5,
-    "slider": {"min": 0.1, "max": 0.9, "step": 0.05},
+    "slider": {
+      "min": 0.1,
+      "max": 0.9,
+      "step": 0.05
+    },
     "hint": "整合稿§5.10.1：r_release 严格大于 ρ 才放行。抑制档连续值恒 ≤ρ。"
   },
   "threshold_low_ratio": {
     "description": "低位拦截线比例",
     "type": "float",
     "default": 0.5,
-    "slider": {"min": 0.3, "max": 0.8, "step": 0.05},
+    "slider": {
+      "min": 0.3,
+      "max": 0.8,
+      "step": 0.05
+    },
     "hint": "整合稿§5.10.1：FIRE_THRESHOLD_LOW=比例×FIRE_THRESHOLD（基准1.05）。低于此线的冲动视为气话/随口，连替代行为也不触发。"
   },
   "delta_delay": {
     "description": "延迟折算系数 δ",
     "type": "float",
     "default": 1.0,
-    "slider": {"min": 0, "max": 2, "step": 0.05},
+    "slider": {
+      "min": 0,
+      "max": 2,
+      "step": 0.05
+    },
     "hint": "整合稿§5.10b：冲突后冷却或连续2轮未回复时，判定阈值抬升 δ×0.15。延迟只推迟发送，不减慢念头积累。"
   },
   "reflux_enabled": {
@@ -249,199 +354,308 @@
     "description": "URGE_CEILING 念头上限",
     "type": "float",
     "default": 3.0,
-    "slider": {"min": 1, "max": 10, "step": 0.1},
+    "slider": {
+      "min": 1,
+      "max": 10,
+      "step": 0.1
+    },
     "hint": "论文§9：念头积累的封顶值。"
   },
   "streak_gate_step": {
     "description": "STREAK_GATE_STEP 冷落抬升",
     "type": "float",
     "default": 0.2,
-    "slider": {"min": 0, "max": 1, "step": 0.05},
+    "slider": {
+      "min": 0,
+      "max": 1,
+      "step": 0.05
+    },
     "hint": "论文§9：被冷落一次，开口门槛+0.2；正常聊天后回落。"
   },
   "base_rate": {
     "description": "念头基础增速",
     "type": "float",
     "default": 0.55,
-    "slider": {"min": 0, "max": 3, "step": 0.05},
+    "slider": {
+      "min": 0,
+      "max": 3,
+      "step": 0.05
+    },
     "hint": "du/dt 基线。越大越'粘人'。实际增速=base×interest×timing_fit×mood_state。"
   },
   "rhythm_on": {
     "description": "RHYTHM_ON 作息命中增速",
     "type": "float",
     "default": 1.45,
-    "slider": {"min": 0, "max": 3, "step": 0.05},
+    "slider": {
+      "min": 0,
+      "max": 3,
+      "step": 0.05
+    },
     "hint": "论文§9：主人活跃时段（8-24点）念头攒得快。"
   },
   "rhythm_off": {
     "description": "RHYTHM_OFF 作息未命中增速",
     "type": "float",
     "default": 0.48,
-    "slider": {"min": 0, "max": 3, "step": 0.05},
+    "slider": {
+      "min": 0,
+      "max": 3,
+      "step": 0.05
+    },
     "hint": "论文§9：非活跃时段念头攒得慢。"
   },
   "quiet_start": {
     "description": "安静时段开始（点）",
     "type": "int",
     "default": 1,
-    "slider": {"min": 0, "max": 23, "step": 1},
+    "slider": {
+      "min": 0,
+      "max": 23,
+      "step": 1
+    },
     "hint": "这段时间冻结念头积累、绝不主动打扰。"
   },
   "quiet_end": {
     "description": "安静时段结束（点）",
     "type": "int",
     "default": 8,
-    "slider": {"min": 0, "max": 23, "step": 1},
+    "slider": {
+      "min": 0,
+      "max": 23,
+      "step": 1
+    },
     "hint": "安静时段到这个点为止。"
   },
-
   "eta_adapt": {
     "description": "η_adapt 自适应学习率",
     "type": "float",
     "default": 0.6,
-    "slider": {"min": 0, "max": 1, "step": 0.05},
+    "slider": {
+      "min": 0,
+      "max": 1,
+      "step": 0.05
+    },
     "hint": "论文§5.7：θ_{t+1}←θ_t-η·∂L/∂θ。0=关闭自适应（θ 冻结在初始值）。"
   },
   "threshold_max": {
     "description": "阈值硬饱和上限",
     "type": "float",
     "default": 3.5,
-    "slider": {"min": 1.5, "max": 6, "step": 0.1},
+    "slider": {
+      "min": 1.5,
+      "max": 6,
+      "step": 0.1
+    },
     "hint": "数值自洽检查报告§9 的修补：连续负反馈阈值最多抬到 3.5，永不永久沉默。"
   },
   "threshold_floor": {
     "description": "阈值下限",
     "type": "float",
     "default": 1.2,
-    "slider": {"min": 0.5, "max": 3, "step": 0.05},
+    "slider": {
+      "min": 0.5,
+      "max": 3,
+      "step": 0.05
+    },
     "hint": "正反馈把阈值往下调的底，防止话痨化。"
   },
   "silence_hours": {
     "description": "冷场判定（小时）",
     "type": "float",
     "default": 2.0,
-    "slider": {"min": 0.5, "max": 24, "step": 0.5},
+    "slider": {
+      "min": 0.5,
+      "max": 24,
+      "step": 0.5
+    },
     "hint": "论文§11：主动消息发出后 >2h 无回复 → 阈值抬升。"
   },
   "silence_step": {
     "description": "冷场阈值抬升步长",
     "type": "float",
     "default": 0.1,
-    "slider": {"min": 0, "max": 1, "step": 0.05},
+    "slider": {
+      "min": 0,
+      "max": 1,
+      "step": 0.05
+    },
     "hint": "每次冷场 FIRE_THRESHOLD +0.1（饱和上限内）。"
   },
   "reengage_minutes": {
     "description": "热络接续判定（分钟）",
     "type": "int",
     "default": 5,
-    "slider": {"min": 1, "max": 120, "step": 1},
+    "slider": {
+      "min": 1,
+      "max": 120,
+      "step": 1
+    },
     "hint": "论文§11：主动消息后 5 分钟内主人接话 = 正反馈，阈值下调。"
   },
   "reengage_step": {
     "description": "接续阈值下调步长",
     "type": "float",
     "default": 0.05,
-    "slider": {"min": 0, "max": 0.5, "step": 0.01},
+    "slider": {
+      "min": 0,
+      "max": 0.5,
+      "step": 0.01
+    },
     "hint": "每次热络接续 FIRE_THRESHOLD -0.05（下限内）。"
   },
   "suppress_hours": {
     "description": "'别老找我'压制时长（小时）",
     "type": "float",
     "default": 6.0,
-    "slider": {"min": 0.5, "max": 48, "step": 0.5},
+    "slider": {
+      "min": 0.5,
+      "max": 48,
+      "step": 0.5
+    },
     "hint": "论文§11 强负反馈：u 增速↓ + 这段时间不主动开口。"
   },
   "care_after_hours": {
     "description": "'关心近况'由头门槛（小时）",
     "type": "float",
     "default": 12.0,
-    "slider": {"min": 0.5, "max": 168, "step": 0.5},
+    "slider": {
+      "min": 0.5,
+      "max": 168,
+      "step": 0.5
+    },
     "hint": "论文§9 由头锚点：距上次聊天超过这么久，'关心近况'才算合法由头。新图谱没有旧事/承诺锚点时，这是主动开口的主要来源。"
   },
   "q_gain": {
     "description": "Q 值步长（L_adapt）",
     "type": "float",
     "default": 0.1,
-    "slider": {"min": 0, "max": 0.5, "step": 0.01},
+    "slider": {
+      "min": 0,
+      "max": 0.5,
+      "step": 0.01
+    },
     "hint": "论文§5.8 L_adapt：好评行为 Q↑、差评 Q↓ 的单次幅度。"
   },
   "eff_gain": {
     "description": "自我效能增量",
     "type": "float",
     "default": 0.05,
-    "slider": {"min": 0, "max": 0.3, "step": 0.01},
+    "slider": {
+      "min": 0,
+      "max": 0.3,
+      "step": 0.01
+    },
     "hint": "论文§8：成功 +0.05。"
   },
   "eff_drop": {
     "description": "自我效能减量",
     "type": "float",
     "default": 0.1,
-    "slider": {"min": 0, "max": 0.5, "step": 0.01},
+    "slider": {
+      "min": 0,
+      "max": 0.5,
+      "step": 0.01
+    },
     "hint": "论文§8：失败 -0.1。"
   },
-
   "O": {
     "description": "ψ 开放性 O",
     "type": "float",
     "default": 0.55,
-    "slider": {"min": 0, "max": 1, "step": 0.05},
+    "slider": {
+      "min": 0,
+      "max": 1,
+      "step": 0.05
+    },
     "hint": "论文§8 大五人格：认知失调时决定'更新'还是'合理化'。"
   },
   "C": {
     "description": "ψ 尽责性 C",
     "type": "float",
     "default": 0.45,
-    "slider": {"min": 0, "max": 1, "step": 0.05},
+    "slider": {
+      "min": 0,
+      "max": 1,
+      "step": 0.05
+    },
     "hint": "论文§8 大五人格。"
   },
   "E": {
     "description": "ψ 外向性 E",
     "type": "float",
     "default": 0.6,
-    "slider": {"min": 0, "max": 1, "step": 0.05},
+    "slider": {
+      "min": 0,
+      "max": 1,
+      "step": 0.05
+    },
     "hint": "论文§8：p_initiate ∝ E，外向性越高越主动找人说话。"
   },
   "A": {
     "description": "ψ 宜人性 A",
     "type": "float",
     "default": 0.7,
-    "slider": {"min": 0, "max": 1, "step": 0.05},
+    "slider": {
+      "min": 0,
+      "max": 1,
+      "step": 0.05
+    },
     "hint": "论文§8：θ_tantrum=θ₀×(1+A)，宜人性越高越不容易发火。"
   },
   "N": {
     "description": "ψ 神经质 N",
     "type": "float",
     "default": 0.35,
-    "slider": {"min": 0, "max": 1, "step": 0.05},
+    "slider": {
+      "min": 0,
+      "max": 1,
+      "step": 0.05
+    },
     "hint": "论文§8：τ_fear=τ₀×(1+N)，神经质越高恐惧消退越慢。自洽报告§8 验证过。"
   },
-
   "g_relation": {
     "description": "g 目标：关系",
     "type": "float",
     "default": 0.6,
-    "slider": {"min": 0, "max": 1, "step": 0.05},
+    "slider": {
+      "min": 0,
+      "max": 1,
+      "step": 0.05
+    },
     "hint": "论文§10：维持亲密关系，驱动主动关心、记住承诺（随交互自动漂移）。"
   },
   "g_memory": {
     "description": "g 目标：记忆",
     "type": "float",
     "default": 0.3,
-    "slider": {"min": 0, "max": 1, "step": 0.05},
+    "slider": {
+      "min": 0,
+      "max": 1,
+      "step": 0.05
+    },
     "hint": "论文§10：整理巩固记忆，驱动梦境固化（深夜自动↑）。"
   },
   "g_self": {
     "description": "g 目标：自我",
     "type": "float",
     "default": 0.2,
-    "slider": {"min": 0, "max": 1, "step": 0.05},
+    "slider": {
+      "min": 0,
+      "max": 1,
+      "step": 0.05
+    },
     "hint": "论文§10：自我认知成长，驱动写日记/发说说/改签名。"
   },
   "g_avoid": {
     "description": "g 目标：回避",
     "type": "float",
     "default": 0.4,
-    "slider": {"min": 0, "max": 1, "step": 0.05},
+    "slider": {
+      "min": 0,
+      "max": 1,
+      "step": 0.05
+    },
     "hint": "论文§10：避免冲突被讨厌，驱动冷战后主动和解、不过度打扰。"
   }
 }

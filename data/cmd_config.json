@@ -221,7 +221,7 @@
     ],
     "dashboard": {
         "enable": true,
-        "username": "Zjx",
+        "username": "admin",
         "password": "",
         "jwt_secret": "",
         "host": "0.0.0.0",
@@ -230,7 +230,7 @@
     },
     "platform": [
         {
-            "id": "napcat",
+            "id": "qq",
             "type": "aiocqhttp",
             "enable": true,
             "ws_reverse_host": "0.0.0.0",

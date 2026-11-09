@@ -1,6 +1,6 @@
-﻿# Bot mode switch: offline = save tokens (diary only), online = full features
+# Bot mode switch: offline = save tokens (diary only), online = full features
 param([string]$Mode)
-$base = "E:\Users\zjx\Desktop\deepseek接QQ小号"
+$base = Split-Path -Parent $PSScriptRoot
 $pluginsDir = "$base\data\plugins"
 $stashDir = "$base\data\plugins_offline"
 $log = "$base\data\watchdog.log"

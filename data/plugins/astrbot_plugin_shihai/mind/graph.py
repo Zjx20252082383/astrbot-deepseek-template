@@ -534,6 +534,7 @@ class MemoryGraph:
         rows.sort(key=lambda n: -n["created"])
         return [{"content": nd["content"][:80],
                  "when": self.when_label(nd["created"], now),
+                 "sender": str(nd.get("sender", "owner") or "owner"),
                  "a": round(nd["a"], 3)}
                 for nd in rows[:limit]]
 

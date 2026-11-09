@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import math
 import random
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from .actions import check_requires
 
@@ -53,11 +53,13 @@ class PolicyEngine:
     def select(
         self, state: Dict[str, Any], behaviors: List[Dict[str, Any]],
         anchor_kinds: List[str],
+        available_needs: Optional[Set[str]] = None,
     ) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]], float]:
         """从涌现候选中选一个行为。
 
-        候选条件：enabled + proactive + 锚点匹配 + requires 满足。
-        返回 (action, 匹配的锚点, 得分)；无候选返回 (None, None, 0)。
+        候选条件：enabled + proactive + 锚点匹配 + requires 满足 + 适配器可用。
+        available_needs：本次运行真正可用的出口（qzone/draw/ai_cover）。
+        未传时按"没有适配器"处理，避免把不可执行的行为选中后空转。
         """
         best: Optional[Tuple[float, Dict[str, Any], Dict[str, Any]]] = None
         eps = self.explore_epsilon(float(
@@ -65,8 +67,9 @@ class PolicyEngine:
         for act in behaviors:
             if not act.get("enabled", True) or not act.get("proactive"):
                 continue
-            if act.get("needs"):
-                continue  # 需要外部适配器的行为，v1 看门狗不自动触发
+            need = str(act.get("needs") or "").strip()
+            if need and (available_needs is None or need not in available_needs):
+                continue  # 需要的出口此刻不可用（服务没起/没拿到 bot/没有 key）
             anchors = act.get("anchor") or ["recent"]
             matched = next((a for a in anchor_kinds if a in anchors), None)
             if matched is None:
@@ -84,21 +87,26 @@ class PolicyEngine:
         return best[1], best[2], best[0]
 
     def rankings(self, state: Dict[str, Any],
-                 behaviors: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+                 behaviors: List[Dict[str, Any]],
+                 available_needs: Optional[Set[str]] = None) -> List[Dict[str, Any]]:
         """全部行为打分视图（behavior_list 工具用）。"""
         eps = self.explore_epsilon(float(
             (state.get("goals", {}) or {}).get("g_relation", 0.5)))
         rows = []
         for act in behaviors:
+            need = str(act.get("needs") or "").strip()
+            capable = (not need) or (available_needs is not None
+                                     and need in available_needs)
             rows.append({
                 "id": act.get("id", ""),
                 "label": act.get("label", ""),
                 "category": act.get("category", ""),
                 "proactive": bool(act.get("proactive")),
                 "enabled": bool(act.get("enabled", True)),
-                "needs": act.get("needs", ""),
+                "needs": need,
+                "available": capable,
                 "requires": act.get("requires", {}),
-                "emergent": (not act.get("needs")) and check_requires(act, state),
+                "emergent": capable and check_requires(act, state),
                 "score": round(self.score(state, act, eps), 3),
                 "q": round(float((state.get("q_table", {}) or {}).get(
                     act.get("id", ""), 0.0)), 3),

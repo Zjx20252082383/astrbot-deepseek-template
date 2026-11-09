@@ -105,7 +105,7 @@ class ExpressParser:
         }
 
 
-@register("shihai_sms", "zjx", "识海·信使（短信→快递→报主人）", "1.0.0")
+@register("shihai_sms", "识海项目组", "识海·信使（短信→快递→报主人）", "1.0.0")
 class ShihaiSmsPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
