@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>识海·行为与适配 控制台</title>
+<style>
+  body { font-family: "Microsoft YaHei", sans-serif; background: #f4f6fa; margin: 0; padding: 24px; color: #2d3748; }
+  h1 { font-size: 20px; color: #1a365d; } .tag { background:#2b6cb0; color:#fff; border-radius:4px; padding:2px 8px; font-size:12px; vertical-align:middle; }
+  .card { background:#fff; border:1px solid #e2e8f0; border-radius:8px; padding:16px 20px; margin-bottom:16px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; } td, th { border-bottom:1px solid #edf2f7; padding:6px 8px; text-align:left; } th { color:#4a5568; }
+  .ok { color:#38a169; font-weight:bold; } .bad { color:#e53e3e; font-weight:bold; }
+  .note { color:#718096; font-size:12px; margin-top:8px; }
+</style>
+</head>
+<body>
+<h1><span class="tag">识海·行为与适配</span> 套件控制台</h1>
+<div class="card">
+  <b>运行状态</b>
+  <div id="status" class="note">加载中……（若一直加载失败，请确认 AstrBot WebUI 已登录）</div>
+</div>
+<div class="card">
+  <b>说明</b>
+  <p class="note">本页是精简重建版：原「小鱼工具箱」可视化控制台页面如需完整功能，
+  可从系统回收站还原 <code>astrbot_plugin_dafeiyu_toolbox/views/suite/index.html</code> 覆盖本文件。</p>
+  <p class="note">Web API（原别名仍有效）：/astrbot_plugin_shihai_behavior/status · /config · /action · /memory 等 Eleven 个接口，
+  旧地址 /astrbot_plugin_dafeiyu_toolbox/* 由别名自动兼容。</p>
+</div>
+<script>
+fetch('/astrbot_plugin_shihai_behavior/status').then(r => r.json()).then(d => {
+  const rows = [];
+  const add = (k, v) => rows.push(`<tr><th>${k}</th><td>${v}</td></tr>`);
+  const p = d.plugin || {};
+  add('插件', `${p.name} v${p.version}`);
+  add('Handlers / LLM 工具', `${(p.handlers||{}).total} / ${(p.llm_tools||{}).total}`);
+  add('平台', (p.platforms||[]).join(', ') || '—');
+  const c = d.complain || {};
+  add('告状模块', c.enabled ? `开（今日 ${c.today||0} 次，家人 ${c.guardians||0} 人）` : '关');
+  const u = d.usage || {};
+  add('用量监控', u.enabled ? `开（阈值 ${u.alert_threshold} 元，任务${u.task_running ? '运行中' : '停止'}）` : '关');
+  const v = d.voice || {};
+  add('语音模块', `听${v.listen_enabled?'开':'关'} / 说${v.speak_enabled?'开':'关'} / 唱${v.sing_enabled?'开':'关'}（后端 ${v.backend}）`);
+  const t = d.toolbox || {};
+  add('QQ 工具箱', `今日操作 ${Object.values(t.today||{}).reduce((a,b)=>a+(b||0),0)} 次，历史 ${t.history||0} 条`);
+  const m = d.memory || {};
+  add('短记忆', `${m.total ?? Object.values(m).find(x=>typeof x==='number') ?? '—'} 条`);
+  document.getElementById('status').innerHTML = `<table>${rows.join('')}</table>`;
+}).catch(e => {
+  document.getElementById('status').innerHTML = '<span class="bad">状态获取失败：</span>' + e;
+});
+</script>
+</body>
+</html>

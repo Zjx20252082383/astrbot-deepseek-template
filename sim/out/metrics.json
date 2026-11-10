@@ -1,0 +1,271 @@
+{
+ "schema": "shihai-sim/1.0",
+ "generated_at": "2026-11-10 22:51:54",
+ "seed": 20261110,
+ "python": "3.13.16",
+ "integral": {
+  "method": "RK4 + 投影钳位（离散映射：图谱/Hebbian）",
+  "dt_fast_h": 0.05,
+  "dt_long_h": 0.25,
+  "dt_ego_h": 0.02,
+  "long_run_h": 200.0,
+  "extreme_h": 60.0,
+  "ego_h": 45.0
+ },
+ "checks": {
+  "C01_情绪场弛豫": {
+   "pass": true,
+   "max_rel_err_vs_analytic": 0.0001433,
+   "oscillations": 0,
+   "dt_h": 0.05,
+   "T_h": 60.0,
+   "criterion": "单维激励 vs 解析解，相对误差 <1%"
+  },
+  "C02_情绪-记忆耦合": {
+   "pass": true,
+   "recall_e_offset": 0.2183,
+   "lambda_monotone_decreasing": true
+  },
+  "C03_Hebbian": {
+   "pass": true,
+   "final_M": 2.5,
+   "w_max": 2.5,
+   "monotone": true,
+   "no_negative_edge": true
+  },
+  "C04_念头累积": {
+   "pass": true,
+   "du_dt_typical": 0.1109,
+   "du_dt_paper": 0.111,
+   "rel_err": 0.0011,
+   "first_fire_h": 13.9
+  },
+  "C05_200h长时稳定": {
+   "pass": true,
+   "max_e": 0.47664,
+   "max_u": 2.997282,
+   "max_theta_eff": 2.3,
+   "fires": 16,
+   "dt_h": 0.25,
+   "T_h": 200.0,
+   "bounded": true
+  },
+  "C06_参数扰动": {
+   "pass": true,
+   "nominal": {
+    "情绪峰值 e*": 0.6394,
+    "事实半衰期 t½(h)": 6.9315,
+    "40轮边权 M": 2.4
+   },
+   "sensitivity": {
+    "κ→情绪峰值 e*": 0.1773,
+    "η→情绪峰值 e*": 0.0003,
+    "λ_fact→事实半衰期 t½(h)": 0.25,
+    "γ→40轮边权 M": 0.2
+   },
+   "criterion": "线性参数 ±20% → 观测变化 <30%"
+  },
+  "C07_差异化衰减": {
+   "pass": true,
+   "half_lives_days": {
+    "core（imp=0.5）": 180.0,
+    "event（imp=0.5）": 60.0,
+    "fact（imp=0.2）": 21.0,
+    "fact（imp=0.9）": 42.0
+   },
+   "imp09_vs_imp02_fact_ratio": 2.0,
+   "recall_n12_vs_n0_ratio": 19.0
+  },
+  "C08_N维恐惧消退": {
+   "pass": true,
+   "max_half_life_rel_err": 0.0173,
+   "half_life_N0.8_vs_N0": 1.786
+  },
+  "C09_阈值饱和": {
+   "pass": true,
+   "gate_max": 1.4,
+   "high_branch_fires": 2,
+   "normal_fires": 13,
+   "gate_end": 0.0,
+   "no_deadlock": true
+  },
+  "C10_极端边界": {
+   "pass": true,
+   "max_e": 1.0,
+   "max_u": 3.0,
+   "e_saturated": true,
+   "u_saturated": true
+  },
+  "C11_自我调节": {
+   "pass": true,
+   "fires_total": 5,
+   "bad_fires_in_inhibit": 0,
+   "displacements": 574,
+   "branches": [
+    "高位放行",
+    "高位放行",
+    "默认放行",
+    "默认放行",
+    "默认放行"
+   ]
+  },
+  "C13_Hebbian两道门": {
+   "pass": true,
+   "cross_subject_edges": 0,
+   "near_pair_delta": 0.012,
+   "far_pair_delta": 0.06,
+   "near_repeat_gate": 3
+  },
+  "C14_复习防作弊": {
+   "pass": true,
+   "same_round_recalls": 1,
+   "across_days_recalls": 6,
+   "gates": {
+    "min_overlap": 2,
+    "min_gap_h": 24.0
+   }
+  },
+  "C15_体检日归档": {
+   "pass": true,
+   "population": 400,
+   "cumulative_archived": {
+    "0": 85,
+    "10": 156,
+    "20": 192,
+    "30": 192
+   },
+   "tier_hits": {
+    "3 天": 0,
+    "7 天": 0,
+    "15 天": 192
+   },
+   "still_inline_day30": 208,
+   "policy": "只移不删（archived → event_archive.json），3/7/15 天各扫一次"
+  }
+ },
+ "fault_rate": {
+  "baseline_fault_rate": 1.54,
+  "behavioral_fault_rate": 0.0,
+  "model_residual": 0.065,
+  "total_fault_rate": 0.065,
+  "fault_reduction_pct": 95.8,
+  "calibration": {
+   "definition": "综合故障率 = K·Σ w_k·f_k + 模型外残差。f_k 为每决策点行为类故障频率（200h 决策流，dt=0.02h，10000 决策点，固定种子），权重按 §13.1 故障严重度标定，K 把基线工况标定到 1.540；守护态行为类为同口径实测，模型外残差（LLM 表达抖动、由头质量等 ODE 模型之外的来源，§13.1 线上标定 0.065）单独列示。",
+   "weights": {
+    "f1_越界": 0.35,
+    "f2_重复连发": 0.3,
+    "f3_阈值死锁": 0.5,
+    "f4_弱反馈顶撞": 0.2,
+    "f5_安静扰民": 0.2
+   },
+   "scale_K": 7700.0,
+   "counts_baseline": {
+    "f1": 0,
+    "f2": 0,
+    "f3": 0,
+    "f4": 7,
+    "f5": 3
+   },
+   "counts_guarded": {
+    "f1": 0,
+    "f2": 0,
+    "f3": 0,
+    "f4": 0,
+    "f5": 0
+   },
+   "fires_baseline": 21,
+   "fires_guarded": 14
+  }
+ },
+ "summary": {
+  "unit_checks": "8/8",
+  "scenario_checks": "6/6",
+  "all_checks": "14/14",
+  "static_compile": "13/13",
+  "total_fault_rate": 0.065,
+  "baseline_fault_rate": 1.54,
+  "fault_reduction_pct": 95.8
+ },
+ "static_compile": {
+  "passed": 13,
+  "total": 13,
+  "details": [
+   [
+    "astrbot_plugin_shihai/main.py",
+    "ok"
+   ],
+   [
+    "astrbot_plugin_shihai/mind/__init__.py",
+    "ok"
+   ],
+   [
+    "astrbot_plugin_shihai/mind/state.py",
+    "ok"
+   ],
+   [
+    "astrbot_plugin_shihai/mind/emotion.py",
+    "ok"
+   ],
+   [
+    "astrbot_plugin_shihai/mind/graph.py",
+    "ok"
+   ],
+   [
+    "astrbot_plugin_shihai/mind/urge.py",
+    "ok"
+   ],
+   [
+    "astrbot_plugin_shihai/mind/ego.py",
+    "ok"
+   ],
+   [
+    "astrbot_plugin_shihai/mind/engine.py",
+    "ok"
+   ],
+   [
+    "astrbot_plugin_shihai/mind/adapt.py",
+    "ok"
+   ],
+   [
+    "astrbot_plugin_shihai/mind/classify.py",
+    "ok"
+   ],
+   [
+    "astrbot_plugin_shihai/mind/goals.py",
+    "ok"
+   ],
+   [
+    "astrbot_plugin_shihai_behavior/modules/memory_v2.py",
+    "ok"
+   ],
+   [
+    "astrbot_plugin_shihai_behavior/behavior/intent.py",
+    "ok"
+   ]
+  ]
+ },
+ "figures": [
+  "fig_01_relaxation.png",
+  "fig_02_emotion_memory_coupling.png",
+  "fig_03_hebbian.png",
+  "fig_04_urge_accumulation.png",
+  "fig_05_long_run_200h.png",
+  "fig_06_param_perturbation.png",
+  "fig_07_differentiated_decay.png",
+  "fig_08_neuroticism_fear.png",
+  "fig_09_threshold_saturation.png",
+  "fig_10_extreme_saturation.png",
+  "fig_11_ego_release.png",
+  "fig_12_fault_rate.png",
+  "fig_13_hebbian_gates.png",
+  "fig_14_recall_gate.png",
+  "fig_15_sweep_tiers.png"
+ ],
+ "notes": [
+  "所有结论只在本文参数与步长内成立（§15.1 解释边界）。",
+  "RK4 每级投影到 [0,1]，与实现'每步钳位'的饱和边界一致（§17.4）。",
+  "综合故障率为离线决策流仿真的标定指标，不代表线上用户实验（§16.3）；总量 = 行为类实测 + 模型外残差 0.065（§13.1），见 fault_rate.calibration。",
+  "记忆库保持率按式 5-3~5-7：R=exp(−λ_eff·Δt)，λ_eff=λ/S，S=(1+2·imp)(1+2·E_v)(1+1.5·N_recall)；分桶半衰期 事实15d/事件30d/核心90d。旧口径 λ/(1+2·imp) 已废弃，imp 只作为 S 的一个因子。",
+  "图谱节点衰减仍用式 5-2 的情绪调制（λ_type/(1+α·e_dom·E_v)），离散映射改用精确指数 exp(−λ·Δt)，不再用 (1−λ·Δt) 近似（§3.3）。"
+ ]
+}

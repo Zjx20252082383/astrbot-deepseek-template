@@ -1,0 +1,185 @@
+/* 识海论文打印样式（A4，Edge headless --print-to-pdf） */
+@page {
+  size: A4;
+  margin: 2.2cm 2.1cm 2.4cm 2.1cm;
+}
+
+html {
+  font-size: 10.5pt;
+}
+
+body {
+  font-family: "Microsoft YaHei", "PingFang SC", "SimSun", sans-serif;
+  color: #1a1a1a;
+  line-height: 1.72;
+  margin: 0;
+  text-align: justify;
+  word-break: break-word;
+}
+
+/* ---- 标题页 ---- */
+#title-block-header {
+  text-align: center;
+  margin: 5.5em 0 3.5em;
+  page-break-after: always;
+}
+#title-block-header h1.title {
+  font-size: 22pt;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  margin: 1.2em 0 0.8em;
+  border: none;
+  color: #10233f;
+}
+p.subtitle {
+  font-size: 12.5pt;
+  color: #40566f;
+  margin: 0 0 2.2em;
+}
+p.author {
+  font-size: 11.5pt;
+  margin: 0.35em 0;
+}
+p.date {
+  font-size: 11pt;
+  color: #5a6b80;
+  margin-top: 2.4em;
+}
+
+/* ---- 目录 ---- */
+nav#TOC {
+  page-break-after: always;
+}
+nav#TOC::before {
+  content: "目录";
+  display: block;
+  font-size: 16pt;
+  font-weight: 700;
+  color: #10233f;
+  text-align: center;
+  margin-bottom: 1.2em;
+}
+nav#TOC ul {
+  list-style: none;
+  padding-left: 1.4em;
+}
+nav#TOC > ul {
+  padding-left: 0;
+}
+nav#TOC li {
+  margin: 0.28em 0;
+  font-size: 10.5pt;
+}
+nav#TOC > ul > li {
+  font-weight: 600;
+  margin-top: 0.55em;
+}
+nav#TOC > ul > li ul li {
+  font-weight: 400;
+  color: #333;
+}
+nav#TOC a {
+  text-decoration: none;
+  color: inherit;
+}
+
+/* ---- 章节标题 ---- */
+h1 {
+  font-size: 16pt;
+  color: #10233f;
+  border-bottom: 2.2px solid #10233f;
+  padding-bottom: 0.3em;
+  margin: 1.4em 0 0.9em;
+  page-break-before: always;
+  page-break-after: avoid;
+}
+h2 {
+  font-size: 13pt;
+  color: #17335a;
+  margin: 1.25em 0 0.6em;
+  page-break-after: avoid;
+}
+h3 {
+  font-size: 11.5pt;
+  color: #23405f;
+  margin: 1.1em 0 0.5em;
+  page-break-after: avoid;
+}
+
+/* ---- 正文 ---- */
+p {
+  margin: 0.55em 0;
+}
+strong {
+  color: #0f2238;
+}
+
+/* ---- 图表 ---- */
+img {
+  display: block;
+  margin: 0.9em auto 0.35em;
+  max-width: 100%;
+  page-break-inside: avoid;
+}
+p.caption,
+figcaption {
+  text-align: center;
+  font-size: 9pt;
+  color: #47536b;
+  margin: 0.25em auto 1.3em;
+  page-break-before: avoid;
+  width: 88%;
+}
+
+/* ---- 表格（pandoc simple/grid 表） ---- */
+table {
+  border-collapse: collapse;
+  margin: 0.9em auto 1.2em;
+  font-size: 9pt;
+  line-height: 1.5;
+  max-width: 100%;
+  page-break-inside: avoid;
+}
+th, td {
+  border: 0.6px solid #8fa1b8;
+  padding: 3.5px 7px;
+  text-align: left;
+  vertical-align: top;
+}
+th {
+  background: #eef2f7;
+  color: #10233f;
+  font-weight: 600;
+}
+tr:nth-child(even) td {
+  background: #fafbfd;
+}
+
+/* ---- 行内代码 ---- */
+code {
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 0.86em;
+  background: #f2f4f8;
+  border: 0.5px solid #dde3ec;
+  border-radius: 3px;
+  padding: 0.5px 4px;
+  color: #24344d;
+}
+
+/* ---- 列表 ---- */
+ul, ol {
+  margin: 0.5em 0;
+  padding-left: 2em;
+}
+li {
+  margin: 0.22em 0;
+}
+
+/* ---- 引用块 ---- */
+blockquote {
+  margin: 0.8em 1.2em;
+  padding: 0.4em 1em;
+  border-left: 3px solid #b8c6d9;
+  color: #3a4757;
+  background: #f7f9fb;
+}

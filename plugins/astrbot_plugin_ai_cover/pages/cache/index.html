@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>分离缓存</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="panel">
+      <header>
+        <p class="eyebrow">AI 翻唱</p>
+        <h1>分离缓存</h1>
+        <p class="description">
+          按歌名查找已生成的干人声和伴奏，可单独或批量释放空间。
+        </p>
+      </header>
+      <section class="stats" aria-live="polite">
+        <div class="stat">
+          <span class="label">缓存音乐</span>
+          <strong id="entries">—</strong>
+          <span class="unit">首</span>
+        </div>
+        <div class="stat">
+          <span class="label">占用空间</span>
+          <strong id="size">—</strong>
+        </div>
+      </section>
+
+      <section class="library" aria-labelledby="library-title">
+        <div class="library-heading">
+          <div>
+            <h2 id="library-title">缓存列表</h2>
+            <p id="result-count" class="result-count">—</p>
+          </div>
+          <label class="search">
+            <span class="sr-only">搜索歌曲</span>
+            <input id="search" type="search" placeholder="搜索歌名或文件名" autocomplete="off" />
+          </label>
+        </div>
+        <div class="bulk-actions">
+          <label class="select-all-label">
+            <input id="select-all" type="checkbox" />
+            <span>全选当前结果</span>
+          </label>
+          <span id="selected-count" class="selected-count">已选 0 首</span>
+          <button id="delete-selected" class="danger subtle" type="button" disabled>
+            清理所选
+          </button>
+        </div>
+        <div id="cache-list" class="cache-list" aria-live="polite"></div>
+        <p id="empty" class="empty" hidden>暂无缓存。</p>
+      </section>
+
+      <div class="actions footer-actions">
+        <button id="refresh" class="secondary" type="button">刷新</button>
+        <button id="clear" class="danger" type="button">清理全部缓存</button>
+      </div>
+      <p id="message" class="message" role="status"></p>
+    </main>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

@@ -1,6 +1,0 @@
-name: astrbot_plugin_shihai_psyche
-display_name: 【识海·心理】人格与心理模型
-desc: 识海心理模块：大五人格/依恋/认知失调/条件反射/防御机制/自我效能（论文§8，含调参接口）
-version: 1.0.0
-author: 识海项目组
-repo: local

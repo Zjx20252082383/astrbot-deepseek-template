@@ -2,7 +2,10 @@
 
 这是一个可以直接拿去跑的完整模板：用 **AstrBot**（大模型机器人框架）+ **SnowLuma**（QQ 客户端运行时），把一个 QQ 小号变成接入 **DeepSeek**（或任意 OpenAI 兼容 API）的聊天机器人。
 
-模板里已删除原作者的全部隐私数据（API Key、人格提示词、聊天记录、QQ 号、WebUI 密码），你只需要在 4 个地方填入自己的信息即可跑通。
+模板里已删除原作者的全部隐私数据（API Key、人格提示词、聊天记录、日记、日志、QQ 号、WebUI 密码），你只需要在 4 个地方填入自己的信息即可跑通。
+
+> **本分发包的实际结构**（与下文“原模板目录”不同处以此为准）：
+> `plugins\` 九个插件直接放在顶层；`paper\` 是论文源（md/html/css/media/PDF）；`sim\` 是数值仿真脚本与 `out\`（15 张图 + metrics.json）；`scripts\` 是启动脚本与 `scripts\watchdog\`；`snowluma\` 只保留 `config\`（runtime.json / ui.json）与协议文档，**不含 `node.exe`**，SnowLuma 本体需按官方方式自行安装；AstrBot 的 `data\`（配置库、插件运行数据、日志）**不在包内**，首次启动自动生成。
 
 ---
 
@@ -12,7 +15,7 @@
  QQ 好友 / QQ 群
        │  收发消息（登录的是你的 QQ 小号）
        ▼
-  SnowLuma（snowluma\，QQ 客户端运行时，自带 node.exe）
+  SnowLuma（snowluma\，需自行安装的 QQ 客户端运行时）
        │  OneBot 11 协议
        │  WebSocket 反向连接 → ws://127.0.0.1:6199/ws
        ▼
@@ -32,16 +35,16 @@
 
 本模板不是"提示词+工具"的普通机器人——它内置了论文《识海：融合人格心理学的 QQ 数字生命耦合动力系统》的完整实现。核心思想：**独立的状态动力学系统决定"什么时候说话、为什么说话"，大模型只负责"怎么说"**。
 
-状态向量 `z(t) = [e, a, θ, ψ, u, g]`：六维情绪场 / 神经图谱激活 / 慢演化参数 / 大五人格 / 念头强度 / 内生目标。五个方程耦合（情绪场 ODE、图谱扩散、Hebbian 边权、念头积累、自适应演化），形成五个耦合回路。由识海系列插件落地：
+状态向量 `z(t) = [e, a, θ, ψ, u, g]`：六维情绪场 / 神经图谱激活 / 慢演化参数 / 大五人格 / 念头强度 / 内生目标。五个方程耦合（情绪场 ODE、图谱扩散、Hebbian 边权、念头积累、自适应演化），形成四个耦合回路。由三个自研插件落地：
 
 | 插件 | 角色 | 内容 |
 |---|---|---|
 | `astrbot_plugin_shihai` | 【识海·核心】Core-Mind | 情绪场 ODE（τ/κ/η/W）、神经图谱（扩散激活+双衰减+Hebbian+梦境固化）、念头引擎（FIRE_THRESHOLD=2.10、由头锚点）、EgoRegulator 自我调节（§5.10 分段放行表+防御四机制）、行动记忆入账（bot 侧时序锚）、用户反馈自适应 θ（含饱和上限 3.5）、WebUI 全参数调参 |
 | `astrbot_plugin_shihai_psyche` | 【识海·心理】 | 大五人格 ψ、依恋 att、认知失调、条件反射、防御机制、自我效能（论文 §8 六模型），psyche_tune / psyche_report / psyche_defense 工具 |
-| `astrbot_plugin_shihai_behavior` | 【识海·行为与适配】大肥鱼总成 | 涌现行为空间（behaviors.json 注册表，触发条件可配）+ 策略 π=Q+β·g·φ + **意图包出口** I_t={G_active, E_t, M*_t, P_t, intent-type} + 决定档案注入（"这是你自己的决定"）+ 时序锚定 R_t 与指代时间词换算 + 主动开口执行 ⊕ 工具箱套件（告状/传话/余额/语音听说唱/QQ动作/表情包图库/短记忆/控制台）⊕ RVC 翻唱 ⊕ 画图 ⊕ 戳一戳 ⊕ **生活任务层**（短信→任务卡→顺路取件→确认/完成→归档，`behavior/tasks.py`）⊕ **三层慢演化**（`behavior/evolution.py`，只写 overlay，可回滚） |
-| `astrbot_plugin_shihai_sms` | 【识海·信使】短信入口 | 接收手机 SmsForwarder 的 POST，解析验证码/快递/取件码，写入 `sms_records.json`，供任务层与 `/快递` 查询；token 与端口在插件配置里改 |
+| `astrbot_plugin_shihai_behavior` | 【识海·行为与适配】小鱼总成 | 涌现行为空间（behaviors.json 注册表，触发条件可配）+ 策略 π=Q+β·g·φ + **意图包出口** I_t={G_active, E_t, M*_t, P_t, intent-type} + 决定档案注入（"这是你自己的决定"）+ 时序锚定 R_t 与指代时间词换算 + 主动开口执行 ⊕ 工具箱套件（告状/传话/余额/语音听说唱/QQ动作/表情包图库/短记忆/控制台）⊕ RVC 翻唱 ⊕ 画图 ⊕ 戳一戳 |
 | `astrbot_plugin_shihai_guard` | 【识海·守护】一致性守护层 | 四条不变量 I1 时序单调 / I2 通道隔离（quote 只走 few-shot）/ I3 表达归界（σ(ψ) 渲染表达参数）/ I4 解释权唯一 + 生成后强度降级与催促线索检出，全程只读 z(t)，审计写 guard_trace.jsonl |
-| `astrbot_plugin_shihai_tools` | 【识海·工具件】 | uapis.cn 100+ 免费 API（热榜/天气/翻译），需自行安装或从本仓取用 |
+| `astrbot_plugin_shihai_tools` | 【识海·工具件】 | uapis.cn 100+ 免费 API（热榜/天气/翻译）⊕ 复合工具 `travel_plan`（真实天气/假期/区划数据包编排行程）/ `product_search`（选购路径指引，不编价格），需自行安装或从本仓取用 |
+| `astrbot_plugin_shihai_sms` | 【识海·信使】 | 手机短信 → SmsForwarder WebHook → 快递解析（取件码/运单号/驿站/状态，双证据判定防聊天误报）→ 主动私聊上报用户；`/快递` `/短信` 查询 + LLM 工具 |
 
 **输出协议**：每轮 LLM 请求前，动力学内核输出结构化意图包 + 简短固定指令追加到 system_prompt——LLM 的动力学侧输入只有这两样（LLM 的输入只有这个结构化包，以及简短固定指令）。
 
@@ -52,12 +55,14 @@
 
 **自然涌现接口**：`astrbot_plugin_shihai_behavior/behaviors.json` 是行为注册表，每个行为声明触发条件（情绪阈值如 sing_cover 需 love≥0.55、目标阈值、锚点类型），念头攒满后按 π 打分选行为——增删行为改这个文件即可，无需改代码。
 
-**记忆模型**：识海图谱（零 LLM 毫秒级）承担联想记忆——每条消息的关键词/事件/情绪/高光节点入图，扩散激活召回 top-k 注入意图包，双衰减率（fact 0.1 / emotion 0.01 / highlight 0.005）按情感强度差异化遗忘，凌晨梦境固化重放+修剪。另配工具箱短事实记忆与私密日记本（`data/plugin_data/` 下，卸载插件不丢）。
+**记忆模型**分两层。图谱层（零 LLM 毫秒级）：每条消息的关键词/事件/情绪/高光节点入图，扩散激活召回 top-k 注入意图包，衰减率按节点类型与当前情绪调制（fact 0.1 / emotion 0.01 / event 0.05 / highlight 0.005，`λv(e)=λtype/(1+α·edom·Ev)`），凌晨梦境固化重放+修剪。记忆库层（`modules/memory_v2.py`）：事实与事件按艾宾浩斯保持率 `R=exp(−Δt/S)` 衰减，分桶半衰期事实 15 天 / 事件 30 天 / 核心 90 天，`S` 由固结时 LLM 自评的 `imp`、情绪峰值与跨天复习次数共同决定；归档只在第 3/7/15 天的“体检日”判定，且**只移不删**（移入 `event_archive.json`）。注入分两块：相关度块 + 三档时间线块（近三天/近一周/近半月），保证日期维度不被语义检索吃掉。
+
+**上下文闭合**（`main.py` 的 `remember_sent_line` / `_update_focus` / `_keep_partial_reply`）：长期记忆只管"几个月前"，最近几轮还得靠短上下文。这里做三处补记——① 语音发出后，把 TTS 正文以「（语音）…」补进历史（框架会把消息链换成 Record，正文随之消失，且 `_save_to_history` 是整段覆盖写，所以补记只能挂在发送结束后的 `after_message_sent` 钩子）；② 从"给我姐姐说句生日快乐"里抽出焦点实体并落盘（6 小时有效、跨重启），下一轮只出现"她"时把焦点塞进意图包，约 20 token；③ 同会话新消息要取消旧回复时，先把已生成的半截正文按「（说到一半被打断）…」入史，再 cancel，最后注入新请求（merge → cancel → inject）。
 
 ### 已内置的第三方插件
 
 仓内还带两个开源第三方插件（均保留原 LICENSE，配置里的密钥已清空，装好后自行填 key）：
-- `astrbot_plugin_clonetts`【识海·语音件】——火山引擎音色克隆 TTS，大肥鱼语音/清唱的 key 来源
+- `astrbot_plugin_clonetts`【识海·语音件】——火山引擎音色克隆 TTS，小鱼语音/清唱的 key 来源
 - `astrbot_plugin_autobackup`【识海·运维件】——AstrBot 目录定时备份
 
 其余运行产物（WebUI 前端 dist、数据库、记忆数据、SnowLuma 本体）都不在仓里：AstrBot/SnowLuma 按官方方式安装后首次启动自动生成。
@@ -66,23 +71,39 @@
 ## 二、目录结构
 
 ```
-├── 启动机器人.bat            # 一键启动：先 SnowLuma 后 AstrBot
-├── astrbot_start.bat         # 单独启动 AstrBot
-├── snowluma_start.bat        # 单独启动 SnowLuma
-├── 在线模式.bat / 离线模式.bat # 切换完整功能 / 省 token 模式
-├── data\                     # AstrBot 全部数据（核心）
-│   ├── cmd_config.json       # ★ 主配置：API Key、管理员QQ、人格、端口
-│   ├── data_v4.db            # 会话/人格数据库（首次启动自动生成）
-│   ├── dist\                 # AstrBot WebUI 前端（勿删）
-│   ├── plugins\              # ★ 全部插件（开发插件就在这里）
-│   ├── config\               # 各插件的配置文件
-│   └── plugin_data\          # 插件运行数据：识海图谱、日记、短记忆（卸载插件不丢）
-├── snowluma\                 # SnowLuma 运行时（自带 node.exe，免安装）
-│   ├── config\
-│   │   └── onebot_你的QQ号.json   # ★ OneBot 连接配置（文件名要改成你的QQ号）
-│   └── data\                 # SnowLuma 账号数据（登录后自动生成）
-└── watchdog\                 # 看门狗 & 模式切换脚本（可选）
+AstrBot_snowluma\
+├── README.md
+├── plugins\                        # ★ 九个插件（拷到 AstrBot 的 data\plugins\ 下即可用）
+│   ├── astrbot_plugin_shihai\            # 核心心智：情绪场 + 神经图谱 + 念头 + 自我调节
+│   ├── astrbot_plugin_shihai_psyche\     # 心理模型：大五、依恋、防御、自我效能
+│   ├── astrbot_plugin_shihai_behavior\   # 行为与适配：意图包、涌现行为、记忆库（memory_v2）
+│   ├── astrbot_plugin_shihai_guard\      # 一致性守护：四条不变量 + 审计
+│   ├── astrbot_plugin_shihai_tools\      # 免费 API 工具件
+│   ├── astrbot_plugin_shihai_sms\        # 短信/快递 WebHook
+│   ├── astrbot_plugin_clonetts\          # 第三方：火山音色克隆 TTS
+│   ├── astrbot_plugin_ai_cover\          # 翻唱/画图
+│   └── astrbot_plugin_autobackup\        # 第三方：定时备份
+├── paper\                          # 论文源
+│   ├── paper_build.md              # 正文（改这个）
+│   ├── paper_build.html            # pandoc 生成
+│   ├── paper_style.css             # A4 打印样式
+│   ├── 识海_论文.pdf                # 由 HTML 打印
+│   └── media\                      # 论文插图（fig_01~fig_15、image1~10）
+├── sim\                            # 数值仿真
+│   ├── shihai_sim.py               # 单文件，14 组检查 + 故障率标定
+│   └── out\                        # 15 张检查图 + metrics.json
+├── scripts\                        # 启动脚本与看门狗
+│   ├── 启动机器人.bat / astrbot_start.bat / snowluma_start.bat
+│   ├── 在线模式.bat / 离线模式.bat
+│   └── watchdog\                   # watchdog.ps1 / mode.ps1 / 隐藏启动 vbs
+└── snowluma\                        # 仅配置与协议文档（不含 node.exe / 账号数据）
+    ├── config\runtime.json
+    ├── config\ui.json
+    ├── EULA.md
+    └── PRIVACY.md
 ```
+
+装好 AstrBot 后的运行目录由 AstrBot 自己在 `data\` 下生成（`cmd_config.json`、`data_v4.db`、`dist\`、`plugins\`、`config\`、`plugin_data\`）。本包只提供 `plugins\` 与 `snowluma\config\` 两份配置模板，其余靠首次启动生成。
 
 ## 三、快速上手（4 步跑通）
 
@@ -93,7 +114,7 @@
   ```
   pip install astrbot
   ```
-- Node 不用装，SnowLuma 目录自带 `node.exe`
+- Node 需要自己装（官方 LTS 版本），包内不含 `node.exe`
 
 ### 1. 填 API Key（一共 5 把，按用途各填各的位置）
 
@@ -231,7 +252,8 @@ class HelloPlugin(Star):
 | `astrbot_plugin_shihai_psyche`【识海·心理】 | 大五人格、依恋、防御机制、自我效能等六心理模型 | **自研，欢迎一起开发** |
 | `astrbot_plugin_shihai_behavior`【识海·行为与适配】 | 总成：涌现行为空间+意图包出口+决定档案 ⊕ 工具箱（说说/语音/QQ动作/告状/表情包图库/短记忆/控制台）⊕ RVC 翻唱 ⊕ 画图 ⊕ 戳一戳 ⊕ 日记 | **自研，欢迎一起开发** |
 | `astrbot_plugin_shihai_guard`【识海·守护】 | 一致性守护层：I1–I4 四不变量（时序单调/通道隔离/表达归界/解释权唯一）+ 生成后校验，只读 z(t)，审计 guard_trace.jsonl | **自研，欢迎一起开发** |
-| `astrbot_plugin_shihai_tools`【识海·工具件】 | 聚合小工具（热搜/天气/查QQ资料等 100+ API） | 第三方（定制改名） |
+| `astrbot_plugin_shihai_tools`【识海·工具件】 | 聚合小工具（热搜/天气/查QQ资料等 100+ API）⊕ travel_plan / product_search 复合工具 | 第三方（定制改名） |
+| `astrbot_plugin_shihai_sms`【识海·信使】 | 手机短信转发 → 快递解析 → 主动上报用户（`/快递` `/短信` 查询） | **自研，欢迎一起开发** |
 | `astrbot_plugin_clonetts` | 声音克隆 TTS | 第三方 |
 | `astrbot_plugin_autobackup` | 自动备份 | 第三方 |
 
@@ -249,9 +271,11 @@ class HelloPlugin(Star):
 
 ## 五、可选功能
 
-- **看门狗**（`watchdog\`）：定时检查 AstrBot(6199)/SnowLuma(5099) 端口，掉线自动拉起。用管理员 PowerShell 一条命令注册（每 3 分钟跑一次）：
+- **识海观测台**（`识海观测台\`）：浏览器实时看她的 z(t)——情绪场、念头 u、锚点由头、主动决定档案、Guard 审计日志，还能一键"让她现在就想开口"。用法：`python 识海观测台\serve.py`，然后浏览器打开 `http://127.0.0.1:6191/`。**必须走 serve.py**：直接双击 HTML 文件会因 file:// 拿不到后端数据，页面永远显示"未接通"。
+- **识海·信使（短信→快递上报）**：手机装 SmsForwarder App，WebHook 填 `http://电脑局域网IP:6187/sms` + 插件配置里的 Token；快递短信会自动解析并私聊上报用户。电脑端需放行 6187 端口入站（管理员 PowerShell：`netsh advfirewall firewall add rule name="ShihaiSms 6187" dir=in action=allow protocol=TCP localport=6187`）。
+- **看门狗**（`scripts\watchdog\`）：定时检查 AstrBot(6199)/SnowLuma(5099) 端口，掉线自动拉起。用管理员 PowerShell 一条命令注册（每 3 分钟跑一次）：
   ```
-  schtasks /Create /TN "BotWatchdog" /TR "wscript.exe E:\你的路径\astrbot-deepseek-template\watchdog\watchdog_hidden.vbs" /SC MINUTE /MO 3 /F
+  schtasks /Create /TN "BotWatchdog" /TR "wscript.exe E:\你的路径\astrbot-deepseek-template\scripts\watchdog\watchdog_hidden.vbs" /SC MINUTE /MO 3 /F
   ```
 - **在线/离线模式**：`离线模式.bat` 会关闭 QQ 并把主动开口的行为插件（shihai_behavior）挪出插件目录暂存（省 token，定时任务如写日记仍运行），`在线模式.bat` 恢复。注意：恢复后 QQ 需要你手动打开并登录，SnowLuma 会自动注入已登录的 QQ。
 - **AI 翻唱**：详见下方「让她开口说话与唱歌」一节。
@@ -262,14 +286,14 @@ class HelloPlugin(Star):
 | 脚本 | 干什么 | 怎么用 / 前置条件 | 什么时候用 |
 |---|---|---|---|
 | `启动机器人.bat` | 一键启动：新窗口跑 SnowLuma → 等 5 秒 → 当前窗口前台跑 AstrBot | 双击即可。前置：已 `pip install astrbot`；SnowLuma 已在 WebUI(5099) 登录过 QQ | 日常启动、想看 AstrBot 日志时 |
-| `snowluma_start.bat` | 单独启动 QQ 客户端（自动接受 EULA/隐私协议，日志写到 `watchdog\snowluma_boot.log`） | 双击或被其它脚本调用；无需管理员权限 | 只想登录/重启 QQ 端 |
-| `astrbot_start.bat` | 单独启动 AstrBot（日志写到 `watchdog\astrbot_boot.log`） | 需要 `astrbot` 在 PATH | 配合 vbs/计划任务后台运行 |
+| `snowluma_start.bat` | 单独启动 QQ 客户端（自动接受 EULA/隐私协议，日志写到 `scripts\watchdog\snowluma_boot.log`） | 双击或被其它脚本调用；无需管理员权限 | 只想登录/重启 QQ 端 |
+| `astrbot_start.bat` | 单独启动 AstrBot（日志写到 `scripts\watchdog\astrbot_boot.log`） | 需要 `astrbot` 在 PATH | 配合 vbs/计划任务后台运行 |
 | `snowluma_service_hidden.vbs` | 隐藏窗口静默启动 SnowLuma | 双击即在后台运行；主要给计划任务/看门狗调用 | 开机自启、无人值守 |
 | `astrbot_service_hidden.vbs` | 隐藏窗口静默启动 AstrBot | 同上 | 同上 |
-| `在线模式.bat` / `离线模式.bat` | 调用 `watchdog\mode.ps1` 切换模式：离线 = 停 SnowLuma + 把识海行为插件挪出插件目录暂存 + 重启 AstrBot；在线 = 恢复插件 + 拉起 SnowLuma + 重启 AstrBot | 双击；离线后 SnowLuma 重启需要重新打开 | 出门/睡觉省 token 用离线 |
-| `watchdog\watchdog.ps1` | 看门狗一轮检查：AstrBot 端口 6199 不通 → 拉 `astrbot_service_hidden.vbs`；SnowLuma WebUI 5099 不通 → 拉 `snowluma_service_hidden.vbs`；`mode.txt` 为 offline 时不拉 SnowLuma；带 4~5 分钟冷却防反复拉起 | 不要手动反复跑，交给计划任务每 3 分钟跑一次（见下） | 长期无人值守 |
-| `watchdog\watchdog_hidden.vbs` | 隐藏运行 `watchdog.ps1` | 用计划任务注册：`schtasks /Create /TN "BotWatchdog" /TR "wscript.exe <完整路径>\watchdog\watchdog_hidden.vbs" /SC MINUTE /MO 3 /F`（需管理员 PowerShell） | 同上 |
-| `watchdog\mode.ps1` | 在线/离线切换逻辑本体（两个模式 bat 只是壳） | `powershell -File mode.ps1 -Mode online\|offline` | 脚本化控制时 |
+| `在线模式.bat` / `离线模式.bat` | 调用 `scripts\watchdog\mode.ps1` 切换模式：离线 = 停 SnowLuma + 把识海行为插件挪出插件目录暂存 + 重启 AstrBot；在线 = 恢复插件 + 拉起 SnowLuma + 重启 AstrBot | 双击；离线后 SnowLuma 重启需要重新打开 | 出门/睡觉省 token 用离线 |
+| `scripts\watchdog\watchdog.ps1` | 看门狗一轮检查：AstrBot 端口 6199 不通 → 拉 `astrbot_service_hidden.vbs`；SnowLuma WebUI 5099 不通 → 拉 `snowluma_service_hidden.vbs`；`mode.txt` 为 offline 时不拉 SnowLuma；带 4~5 分钟冷却防反复拉起 | 不要手动反复跑，交给计划任务每 3 分钟跑一次（见下） | 长期无人值守 |
+| `scripts\watchdog\watchdog_hidden.vbs` | 隐藏运行 `watchdog.ps1` | 用计划任务注册：`schtasks /Create /TN "BotWatchdog" /TR "wscript.exe <完整路径>\scripts\watchdog\watchdog_hidden.vbs" /SC MINUTE /MO 3 /F`（需管理员 PowerShell） | 同上 |
+| `scripts\watchdog\mode.ps1` | 在线/离线切换逻辑本体（两个模式 bat 只是壳） | `powershell -File mode.ps1 -Mode online\|offline` | 脚本化控制时 |
 | `snowluma\launcher.bat` | SnowLuma 自带启动器（先检查 node 版本再启动） | 一般不用手动跑，`snowluma_start.bat` 已够用 | 排查 node 版本问题时 |
 
 **端口速查**
@@ -281,6 +305,8 @@ class HelloPlugin(Star):
 | 6185 | AstrBot WebUI | 配置/插件/人格，默认账号密码 `astrbot`/`astrbot` |
 | 3000 / 3001 | SnowLuma OneBot HTTP / WS | 备用通道，模板未启用 |
 | 18888 | 本地 RVC 推理服务 | AI 翻唱用，没自建就忽略 |
+| 6187 | 识海·信使 HTTP | 手机 SmsForwarder WebHook 收短信（POST /sms），需防火墙放行 |
+| 6191 | 识海观测台 | 本地控制台 serve.py，浏览器开 http://127.0.0.1:6191/ |
 
 **关闭 / 重启**
 
@@ -291,7 +317,7 @@ class HelloPlugin(Star):
 **常见报错**
 
 - “astrbot 不是内部或外部命令” → 没装或不在 PATH：`pip install astrbot`。
-- SnowLuma 黑窗一闪而过 → 看 `watchdog\snowluma_boot.log`；多半是系统 node 版本过旧，用 `snowluma\launcher.bat` 自检版本。
+- SnowLuma 黑窗一闪而过 → 看 `scripts\watchdog\snowluma_boot.log`；多半是系统 node 版本过旧，用 `snowluma\launcher.bat` 自检版本。
 - 收不到消息 → 依次查：SnowLuma(5099) 里小号是否在线 → `onebot_你的QQ号.json` 是否指向 `ws://127.0.0.1:6199/ws` → `netstat -ano | findstr 6199` 是否在监听。
 - 端口被占用 → 6199/6185 在 `data\cmd_config.json` 改，5099 在 `snowluma\config\runtime.json` 改。
 - QQ 频繁掉线/要验证 → 在 SnowLuma WebUI 完成短信验证；手机 QQ 保持在线可降低风控。
@@ -353,7 +379,7 @@ class HelloPlugin(Star):
 
 ### 6.4 训练自己的音色模型（数据生成 → 训练 → 部署）
 
-作者的"大肥鱼"音色没有任何真人录音——**全部训练素材由大模型 TTS 合成**，流程可完全复现：
+作者的"小鱼"音色没有任何真人录音——**全部训练素材由大模型 TTS 合成**，流程可完全复现：
 
 **第 1 步：用 Seed-TTS 批量生成素材**
 
@@ -389,12 +415,10 @@ RVC 官方建议至少 **10 分钟低底噪语音**。每轮 60 段约几分钟�
 
 原作者目录中的以下内容**均已删除或替换为占位符**，可放心分享：
 
-- 全部 API Key（阿里云百炼 / DeepSeek / 智谱 / 博查 / 火山引擎语音克隆 / 画画）在 `data/cmd_config.json` 中均清空为 `""`
-- 人格提示词（"大肥鱼"人格）与日记、聊天记录、会话数据库（`data_v4.db`、SnowLuma 账号数据、记忆库）不随仓库发布
-- 真实 QQ 号、管理员 QQ、短信 token、观测台 token 与 WebUI 密码均已移除或改为空值；首次启动按 README 填自己的号
-- 插件作者署名统一改为「识海项目组」；`watchdog/*.ps1` 改用 `$PSScriptRoot` 相对定位，不再写死作者机器路径
-- NapCat 备用 QQ 客户端目录、备份 zip、日志不随仓库发布（本方案实际使用 SnowLuma）
-- `data/t2i_templates/base.html` 与 `snowluma/client/assets/*.js|css` 中出现的 `sk-*` 是 CSS 类名 / 前端构建产物片段，不是 API Key
+- 全部 API Key（阿里云百炼 / DeepSeek / 智谱 / 博查 / 火山引擎语音克隆 / 画画）
+- 人格提示词（"小鱼"人格）与日记、聊天记录、会话数据库（`data_v4.db`、SnowLuma 账号数据、记忆库）
+- QQ 号、管理员 QQ、WebUI 密码与 token（AstrBot 后台已重置为 `astrbot`/`astrbot`，SnowLuma 首次启动会让你设密码）
+- 备用 QQ 客户端目录、备份 zip、日志（本方案实际使用 SnowLuma）
 
 ## 八、常见问题
 

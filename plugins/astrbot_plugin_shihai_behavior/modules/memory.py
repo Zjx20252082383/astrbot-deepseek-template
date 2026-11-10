@@ -1,0 +1,895 @@
+"""识海记忆运行时（v2 链路，唯一记忆链路）。
+
+旧链路（消息入队 → 攒批 LLM 抽取 → memory.json → 按 (weight, ts) 注入）已删除。
+现在全部走 ``memory_v2.MemoryV2`` 三层记忆：
+
+- 工作记忆：AstrBot 会话上下文（不归本模块管）
+- 事实层 fact.json：稳定身份/关系/约定，慢衰减；来自运行时 LLM 固结 + 迁移
+- 情景层 event_snapshot.json：带情绪峰值的事件摘要；冻结挂在心智 ODE 峰值上
+
+链路：
+  写（被动）：memory_observe 把用户消息存进滚动缓冲（原文快照）
+              → 行为层看门狗每轮调 memory_watch(state)
+              → 检测情绪跳变（|de/dt| 尖峰）或念头峰值（urge ≥ 2.0）
+              → MemoryV2.on_ode_peak 同步冻结 pending 事件
+              → 异步任务调一次 LLM：事件摘要 + 事实三元组 → commit_pending + add_fact
+  读（被动）：memory_inject 在每次 LLM 请求前 recall(用户消息) → prompt 拼装
+  命令/Web：/记忆 /记住 /忘掉 /清空记忆 + suite Web API，全部直写 v2
+
+峰值量纲说明：EPS_DE_DT=0.30 的单位是 h⁻¹（论文连续动力学口径）。核心插件
+observe_user_text 每条消息按 12 分钟持续刺激积分（emotion.step(e, s_ext, s_int, 0.2)），
+单条消息的 Δe ≈ 0.01~0.05，落在 20s 看门狗窗口里折算 de/dt ≈ 2~9 h⁻¹；
+而无刺激的连续衰减只有 |de/dt| = e/τ ≤ 0.5 h⁻¹。因此这里用可配置尖峰阈值
+``de_dt_spike``（默认 2.0 h⁻¹，≈ 单窗 Δe≥0.011）来判定"情绪显著跳变"，
+比论文常数 0.30 更严——按 0.30 执行会把每条非中性消息都冻结成事件。
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import re
+import time
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+from astrbot import logger
+from astrbot.api.event import AstrMessageEvent, filter
+from astrbot.api.message_components import Plain
+
+from .base import SuiteBase, to_int
+from .memory_v2 import (
+    EVENT_CONTENT_MAX, EVENT_TOP_N, FACT_TOP_N, TIMELINE_DAYS, MemoryV2, grams,
+    is_degraded_content)
+
+# 数据目录沿用旧契约（与 memory_v2.py 自检路径一致）
+NAME = "astrbot_plugin_qq_toolbox"
+# 单条事实注入的字数上限：存量 v1 事实会有 80~110 字的长句，一条吃光预算
+FACT_LINE_MAX = 60
+
+# 称呼口径：对方叫「用户」，她自己叫「小助手」。记忆与转写里不使用「主人」「宠物」这类称呼。
+OWNER_NAME = "用户"
+SELF_NAME = "小助手"
+
+# 时间线三档：(天数上界, 系数, 单条字数上限, 档名)。三档互不重叠——
+# 越近的档系数越高、字数越宽、给的名额越多；越远的档越压缩，因为"最近的
+# 那几天"才是她会主动提起的。天数上界之差构成各档的区间：0~2 / 3~6 / 7~14 天。
+TIMELINE_TIERS = (
+    (3, 1.00, 36, "近三天"),
+    (7, 0.85, 30, "近一周"),
+    (15, 0.70, 24, "近半月"),
+)
+# 兜底单条上限（命中不了任何档时用）
+TIMELINE_LINE_MAX = TIMELINE_TIERS[0][2]
+
+_COMMIT_PROMPT = """你是记忆整理助手。下面是你（小助手，住在 QQ 里的蓝色小鱼）和用户刚刚的一段对话记录。
+称呼只用「用户」和「小助手」；不要写「用户」「宠物」「饲主」这类称呼，转写里也别用。
+请输出 JSON：
+{"event": "用不超过100字概括这段对话里发生的事，写清楚时间点和结果",
+ "emotion_tag": "happy/sad/angry/fear/love/surprise/calm 里选一个最贴近的",
+ "imp": 0.0到1.0（一位小数，凭你自己的感觉：这件事在你心里有多重）,
+ "facts": [{"p": "谓词短语（≤10字，如：喜欢吃/养的猫叫/约好/在准备/讨厌）",
+            "o": "宾语短语（≤24字）", "imp": 0.0到1.0（一位小数）}]}
+facts 最多 3 条，只记稳定的事（身份、喜好、约定、近况），没有就给 []。
+imp 判定口径（防止什么都重要）：≥0.85 万一忘了会真的出事（约定/考试/生病/生日/身份）；
+0.6-0.8 值得主动想起来（明确计划、情绪事件、他反复提过的偏好）；0.4-0.5 日常交流；
+≤0.3 闲聊寒暄。只输出 JSON，不要解释。"""
+
+# 重要度规则兜底：仅在 LLM 未给出 imp（超时/解析失败）时使用，不做 max
+_RULE_IMP_STRONG_RX = re.compile(
+    r"(约定|答应|承诺|生日|生病|吃药|考试|面试|还钱|借钱|身份证|全名|我叫)")
+_RULE_IMP_PLAN_RX = re.compile(
+    r"(明天|今晚|晚上|周末|下周|约好|记得|别忘了|一起|准备|要去)")
+
+HELP_TEXT = """记忆相关指令：
+/记忆  看看我记得关于你的事
+/记住 <内容>  手动记一件事（核心记忆，不衰减）
+/忘掉 <关键词>  删掉相关的一条事实
+/清空记忆  清空自己的事实层（用户可加「全部」）
+/记忆帮助  显示这段说明"""
+
+
+class MemoryMixin(SuiteBase):
+    # ==================== 初始化 ====================
+
+    def setup_memory(self) -> None:
+        # 数据在 plugin_data/<NAME>/memory_v2/ 下（fact.json / event_snapshot.json）
+        base = Path(self.module_data_dir(NAME)) / "memory_v2"
+        self._memv2 = MemoryV2(base)
+        # 滚动缓冲：最近的对话原文快照（峰值冻结时取材；重启丢失，不落盘）
+        self._mem_buffer: list[dict[str, Any]] = []
+        self._mem_last_content_ts: float = 0.0
+        # 峰值检测状态
+        self._mem_prev_e: dict[str, float] | None = None
+        self._mem_prev_ts: float = 0.0
+        self._mem_last_freeze: float = 0.0
+        self._mem_last_bank_tick: float = 0.0
+        # imp 滚动分布：窗口级通胀抑制 + 分布日志用；落盘 imp_hist.json 跨重启保留
+        self._mem_imp_hist_path = Path(base) / "imp_hist.json"
+        try:
+            self._mem_imp_hist: list[float] = [
+                float(v) for v in json.loads(
+                    self._mem_imp_hist_path.read_text(encoding="utf-8"))
+                if isinstance(v, (int, float))
+            ][-100:]
+        except Exception:  # noqa: BLE001 - 缺文件/坏 JSON 时从空开始
+            self._mem_imp_hist = []
+        self._mem_tasks: set[asyncio.Task] = set()
+        # 固结解析失败计数 / provider 配置告警一次性标记
+        self._mem_parse_fails = 0
+        self._mem_provider_warned = False
+        self._mem_provider_logged = False
+
+    @filter.on_astrbot_loaded()
+    async def _mem_on_loaded(self):
+        """AstrBot 加载完成后打印记忆统计——setup_memory 执行早于日志 handler
+        就绪，放这里才不会把「记忆链路就绪」吞掉。"""
+        n_facts = len(self._memv2.facts.items)
+        n_events = sum(
+            1 for e in self._memv2.events.items.values() if e.status == "committed"
+        )
+        logger.info("[memoryv2] 记忆链路就绪：事实 %d 条 / 情景事件 %d 条", n_facts, n_events)
+        # 启动时就把"固结打分模型到底能不能解析到"说清楚：配了 id 但 inst_map 里
+        # 没有时会静默回落会话默认模型，光看日志里的 imp 是看不出来的。
+        try:
+            pid = str(self._memory_cfg("extract_provider_id") or "").strip()
+            pm = getattr(self.context, "provider_manager", None)
+            inst = getattr(pm, "inst_map", None)
+            keys = sorted(inst.keys()) if isinstance(inst, dict) else []
+            if pid:
+                hit = pid in keys
+                logger.info("[memoryv2] 固结打分模型 %s：%s（现有 provider: %s）",
+                            pid, "已注册" if hit else "未注册→会回落会话默认",
+                            ", ".join(keys) or "无")
+            else:
+                logger.info("[memoryv2] 固结打分模型：未配置（回落会话默认，imp 可能全是一个值）")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[memoryv2] 固结模型自检失败: {exc}")
+
+    def _memory_cfg(self, key: str, default: Any = None) -> Any:
+        return self.cfg("memory", key, default)
+
+    # ==================== 写链路：观察消息 ====================
+
+    @filter.event_message_type(filter.EventMessageType.ALL)
+    async def memory_observe(self, event: AstrMessageEvent):
+        """把用户消息存进滚动缓冲，供情绪峰值冻结时取对话原文。"""
+        if not bool(self._memory_cfg("enabled", True)):
+            return
+        try:
+            sender = str(event.get_sender_id() or "")
+            if not sender or sender == str(self.bot_qid):
+                return
+            text = self._memory_text(event)
+            if not text or text.startswith("/"):
+                return
+            self._mem_buffer.append(
+                {"ts": time.time(), "sender": sender, "text": text[:120]})
+            if len(self._mem_buffer) > 80:
+                del self._mem_buffer[: len(self._mem_buffer) - 80]
+            self._mem_last_content_ts = time.time()
+        except Exception as exc:  # noqa: BLE001 - 观察失败不能打断对话
+            logger.warning(f"[memoryv2] 观察消息失败: {exc}")
+
+    def _memory_text(self, event: AstrMessageEvent) -> str:
+        try:
+            chain = getattr(event, "message_obj", None)
+            chain = getattr(chain, "message", None) or []
+            text = ""
+            for comp in chain:
+                if isinstance(comp, Plain):
+                    text += comp.text or ""
+        except Exception:  # noqa: BLE001
+            text = ""
+        if not text:
+            text = str(getattr(event, "message_str", "") or "")
+        return text.strip()
+
+    def _mem_recent_dialogue(self, window: float = 1800.0) -> str:
+        """最近 window 秒的对话原文，按说话人标注。"""
+        now = time.time()
+        lines: list[str] = []
+        total = 0
+        for item in reversed(self._mem_buffer):
+            if now - float(item["ts"]) > window:
+                break
+            sender = str(item["sender"])
+            if sender == str(self.owner_qid):
+                who = OWNER_NAME
+            elif sender == str(self.bot_qid):
+                who = SELF_NAME
+            else:
+                who = f"QQ{sender}"
+            line = f"{who}：{item['text']}"
+            lines.append(line)
+            total += len(line)
+            if total >= 600:
+                break
+        lines.reverse()
+        return "\n".join(lines)
+
+    @staticmethod
+    def _mem_top_grams(text: str, n: int = 3) -> list[str]:
+        if not text:
+            return []
+        counts: dict[str, int] = {}
+        for g in grams(text):
+            counts[g] = counts.get(g, 0) + 1
+        return [g for g, _c in sorted(counts.items(), key=lambda kv: -kv[1])[:n]]
+
+    # ==================== 写链路：峰值检测 + 固结（看门狗调用） ====================
+
+    async def memory_watch(self, state: dict[str, Any]) -> None:
+        """行为层看门狗每轮调用：衰减推进 + 情绪峰值检测 + 异步固结。"""
+        if not bool(self._memory_cfg("enabled", True)):
+            return
+        now = time.time()
+        # 衰减：bank 内部按每条目的 last_update_ts 精确计算，调用频率无关；
+        # 每 ≥5 分钟推进一次落盘，减少磁盘写
+        if now - self._mem_last_bank_tick >= 300:
+            self._mem_last_bank_tick = now
+            self._memv2.facts.tick(int(now))
+            self._memv2.events.tick(int(now))
+
+        e = state.get("e") if isinstance(state.get("e"), dict) else {}
+        urge = float(state.get("urge") or 0.0)
+        de_dt = 0.0
+        if self._mem_prev_e and self._mem_prev_ts:
+            dt_h = max(1e-6, (now - self._mem_prev_ts) / 3600.0)
+            dims = set(e) | set(self._mem_prev_e)
+            if dims:
+                de_max = max(
+                    abs(float(e.get(d, 0.0)) - float(self._mem_prev_e.get(d, 0.0)))
+                    for d in dims
+                )
+                de_dt = de_max / dt_h
+        self._mem_prev_e = dict(e)
+        self._mem_prev_ts = now
+
+        # 冻结条件：近 30 分钟有新对话内容，且（情绪尖峰 或 念头峰值），
+        # 距上次冻结超过 gap。内容不足时无事可记，绝不空冻结。
+        gap_ok = now - self._mem_last_freeze >= max(
+            5, to_int(self._memory_cfg("freeze_gap_minutes", 30), 30)) * 60
+        if not gap_ok:
+            return
+        has_new = (self._mem_last_content_ts > self._mem_last_freeze
+                   and now - self._mem_last_content_ts <= 1800)
+        if not has_new:
+            return
+        spike = de_dt >= float(self._memory_cfg("de_dt_spike", 2.0) or 2.0)
+        if not spike and urge < 2.0:
+            return
+        node_id = self._memv2.on_ode_peak(
+            de_dt=de_dt,
+            peak_u=urge,
+            e_t=max((float(v) for v in e.values()), default=0.5),
+        )
+        if not node_id:
+            return
+        self._mem_last_freeze = now
+        raw = self._mem_recent_dialogue()
+        task = asyncio.create_task(self._mem_commit(node_id, raw))
+        self._mem_tasks.add(task)
+        task.add_done_callback(self._mem_tasks.discard)
+        logger.info(
+            "[memoryv2] 情绪峰值冻结事件 %s（de/dt=%.2f h⁻¹, urge=%.2f），异步固结中",
+            node_id, de_dt, urge)
+
+    def _mem_provider(self) -> Any:
+        provider_id = str(self._memory_cfg("extract_provider_id") or "").strip()
+        if not provider_id and not getattr(self, "_mem_provider_warned", False):
+            self._mem_provider_warned = True
+            logger.warning(
+                "[memoryv2] 未配置 memory.extract_provider_id：固结回落当前会话模型"
+                "（长人设/think 输出会拖垮 JSON 解析）。建议指定便宜、无 think 的专用模型")
+        provider = None
+        try:
+            if provider_id:
+                getter = getattr(self.context, "get_provider_by_id", None)
+                pm = getattr(self.context, "provider_manager", None)
+                inst_map = getattr(pm, "inst_map", None) if pm is not None else None
+                if isinstance(inst_map, dict) and inst_map and provider_id in inst_map:
+                    if callable(getter):
+                        provider = getter(provider_id)
+            if provider is None:
+                getter = getattr(self.context, "get_using_provider", None)
+                if callable(getter):
+                    provider = getter()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[memoryv2] 获取固结模型失败: {exc}")
+            return None
+        if provider is None or not hasattr(provider, "text_chat"):
+            return None
+        # 把"实际用哪个模型打分"打出来一次：配了 id 却拼错时，_mem_provider 会
+        # 静默回落当前会话模型，不打印就永远看不出来（这个坑踩过）。
+        if not getattr(self, "_mem_provider_logged", False):
+            self._mem_provider_logged = True
+            real = str(getattr(provider, "provider_config", {}).get("id", "") if isinstance(
+                getattr(provider, "provider_config", None), dict) else "") or provider_id or "当前会话模型"
+            logger.info("[memoryv2] 固结打分模型：%s（配置 %s）",
+                        real, provider_id or "<未配置，回落>")
+        return provider
+
+    @staticmethod
+    def _mem_parse_commit(raw: str) -> dict[str, Any]:
+        text = re.sub(r"```[a-zA-Z]*\s*", "", str(raw or "")).replace("`", "").strip()
+        start, end = text.find("{"), text.rfind("}")
+        if start < 0 or end <= start:
+            return {}
+        try:
+            data = json.loads(text[start: end + 1])
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    async def _mem_commit(self, node_id: str, raw: str) -> None:
+        """阶段二：把冻结的 pending 事件固结——一次 LLM 调用产出事件摘要 + 事实 + 重要度。"""
+        try:
+            content = ""
+            emotion_tag = None
+            facts: list[dict[str, Any]] = []
+            imp_llm = None
+            provider = self._mem_provider() if raw else None
+            if provider is not None:
+                try:
+                    resp = await provider.text_chat(
+                        prompt=raw[:1200], system_prompt=_COMMIT_PROMPT, contexts=[])
+                    text = str(getattr(resp, "completion_text", "") or "")
+                    data = self._mem_parse_commit(text)
+                    if not data:
+                        self._mem_parse_fails += 1
+                        logger.warning(
+                            "[memoryv2] 固结 JSON 解析失败（累计 %d 次），响应头: %.120s"
+                            " —— 连续出现请配置 memory.extract_provider_id",
+                            self._mem_parse_fails, text[:120])
+                    content = str(data.get("event") or "").strip()
+                    emotion_tag = str(data.get("emotion_tag") or "").strip() or None
+                    if isinstance(data.get("facts"), list):
+                        facts = [f for f in data["facts"] if isinstance(f, dict)]
+                    try:
+                        imp_llm = float(data.get("imp"))
+                    except (TypeError, ValueError):
+                        imp_llm = None
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(f"[memoryv2] 固结模型调用失败: {exc}")
+            if not content:
+                # P0：模型不可用/解析失败时不把对话原文写进库——原文会经
+                # "近 12h 豁免"漏进每轮 prompt。事件保持 pending（不 commit）。
+                logger.warning("[memoryv2] 固结未产出摘要，事件 %s 保持 pending", node_id)
+                return
+            # 重要度：LLM 自评直接生效（固结 prompt 已带判定口径与一位小数约束）；
+            # 规则只在 LLM 缺席/解析失败时兜底，不做 max——固结本来就由情绪/念头
+            # 峰值触发，max 会把"不重要"的 LLM 判断整体抬到基线，区分度归零。
+            if imp_llm is not None:
+                imp_val = round(min(1.0, max(0.0, imp_llm)), 1)
+            else:
+                imp_val = self._mem_rule_imp(raw or content)
+            # 窗口级通胀抑制：近 20 条里 ≥0.8 占比 >25% → 本条 −0.1。
+            # 至少 10 条样本才触发——冷启动 3 条里 1 条 0.8（33%）不该立刻降档。
+            win = self._mem_imp_hist[-20:]
+            if len(win) >= 10:
+                hi_ratio = sum(1 for v in win if v >= 0.8) / len(win)
+                if hi_ratio > 0.25:
+                    imp_val = round(max(0.0, imp_val - 0.1), 1)
+                    logger.info(
+                        "[memoryv2] imp 通胀抑制：近 %d 条 ≥0.8 占比 %.0f%%，本条 −0.1 → %.1f",
+                        len(win), 100.0 * hi_ratio, imp_val)
+            # 质量闸（P0-4）：原文兜底（含换行 / 以「用户：」「小助手：」（旧「用户：」「我：」）
+            # 开头的转写）
+            # 或超过 100 字的摘要 → degraded，可检索但不进注入。
+            # 阈值走 memory_v2.is_degraded_content 的统一口径，与 _COMMIT_PROMPT
+            # 的「不超过100字」契约对齐（旧值 80 会误伤 85~100 字的合格摘要）。
+            degraded = is_degraded_content(content)
+            self._memv2.commit_pending(
+                node_id,
+                content=content,
+                edge_kw=self._mem_top_grams(raw or content),
+                emotion_tag=emotion_tag,
+                imp=imp_val,
+                degraded=degraded,
+            )
+            added = 0
+            for f in facts[:3]:
+                obj = str(f.get("o") or "").strip()
+                pred = str(f.get("p") or "").strip()
+                if not obj:
+                    continue
+                try:
+                    f_imp = float(f.get("imp"))
+                except (TypeError, ValueError):
+                    f_imp = None
+                # add_fact 内部处理合并：命中旧事实时 imp 只升不降
+                fid, _new = self._memv2.add_fact(
+                    subject=OWNER_NAME, predicate=pred[:10], obj=obj[:24], weight=0.55,
+                    imp=f_imp if f_imp is not None else imp_val, save=False)
+                added += 1
+            # 批量落盘：一次固结 events/facts 各只写一次盘（原来最多 8 次全量重写）
+            if added:
+                self._memv2.facts.save()
+            # imp 滚动分布（近 100 条）：目标均值 ~0.4、≥0.8 占比 <15%
+            self._mem_imp_hist.append(imp_val)
+            if len(self._mem_imp_hist) > 100:
+                del self._mem_imp_hist[: len(self._mem_imp_hist) - 100]
+            try:  # 落盘滚动分布，跨重启看得到趋势；失败不影响主流程
+                self._mem_imp_hist_path.write_text(
+                    json.dumps(self._mem_imp_hist), encoding="utf-8")
+            except Exception:  # noqa: BLE001
+                pass
+            hist = self._mem_imp_hist
+            logger.info(
+                "[memoryv2] 事件已固结 %s（事实 +%d, imp=%.1f；近%d条均值%.2f / ≥0.8占%.0f%%）：%.80s",
+                node_id, added, imp_val, len(hist),
+                sum(hist) / len(hist),
+                100.0 * sum(1 for v in hist if v >= 0.8) / len(hist),
+                content)
+        except Exception as exc:  # noqa: BLE001 - 固结失败不影响主流程
+            logger.warning(f"[memoryv2] 事件固结失败: {type(exc).__name__} {exc}")
+
+    @staticmethod
+    def _mem_rule_imp(text: str) -> float:
+        """规则兜底重要度：仅在 LLM 未给出 imp（超时/解析失败）时使用。
+
+        不再含 emotion_tag→0.7 与"几乎必中"的计划词抬档：固结本来就由
+        情绪/念头峰值触发，这两条几乎必中，会把兜底值整体抬高。"""
+        t = str(text or "")
+        if _RULE_IMP_STRONG_RX.search(t):
+            return 0.9
+        if _RULE_IMP_PLAN_RX.search(t):
+            return 0.4
+        return 0.2
+
+    # ==================== 读链路：注入 ====================
+
+    @filter.on_llm_request()
+    async def memory_inject(self, event: AstrMessageEvent, req: Any):
+        """每次 LLM 请求前：recall(当前消息) → 事实+事件拼进 system_prompt。"""
+        if not bool(self._memory_cfg("enabled", True)):
+            return
+        if not bool(self._memory_cfg("inject_enabled", True)):
+            return
+        if getattr(req, "_memory_injected", False):
+            return
+        try:
+            query = self._memory_text(event)
+            # §12.5 注入预算：条数与单条字数可在插件配置 memory.* 里调（省 Token 旋钮）
+            try:
+                fact_top_n = max(1, int(self._memory_cfg("fact_top_n", FACT_TOP_N)))
+                event_top_n = max(1, int(self._memory_cfg("event_top_n", EVENT_TOP_N)))
+            except (TypeError, ValueError):
+                fact_top_n, event_top_n = FACT_TOP_N, EVENT_TOP_N
+            facts, events = self._memv2.recall(query, fact_top_n, event_top_n)
+            pairs = self._mem_format_recall(
+                facts, events, max(40, int(self._memory_cfg("event_content_max", EVENT_CONTENT_MAX))))
+            # 时间线（"日子"这一维）：近三天 / 近一周 / 近半月三档，每天一句。
+            # 语义召回只有 event_top_n 个名额、且 a 高的老事件长期占位，光靠它
+            # 她记不住"哪几天发生过什么"；所以时序单独一块，与相关性那一块
+            # 完全分开（各自的名额、各自的预算、各自的标题），不混排序。
+            try:
+                tl_max = max(0, int(self._memory_cfg("timeline_max_lines", 8)))
+            except (TypeError, ValueError):
+                tl_max = 8
+            tl_seq: list[tuple[str, int, int]] = []
+            if tl_max:
+                tl_seq = self._mem_timeline(tl_max)
+            # 相关性闸：当前消息与召回内容零字面交集时，只留豁免行兜底
+            # （核心事实 / 高重要度 imp≥0.8 / 近 12h 事件）——"在干嘛"这类
+            # 无字面交集的话，30 分钟前冻结的事件不该被一起掐掉。
+            # 近因用 ts 判（a 只降不升，a≥0.75 几乎永不成立）。
+            # 时间线行不受此闸影响（它本来就是"不管问什么都该在场"的日子维度），
+            # 所以这里不早退，交给下面的总预算收口。
+            if pairs:
+                if not (grams(query) & grams("\n".join(t for t, _ in pairs))):
+                    kept = [p for p in pairs if p[1]]
+                else:
+                    kept = list(pairs)
+            else:
+                kept = []
+            # 总字数预算（§12.5）：注入内容 ≤ inject_char_budget（默认 240 字）。
+            # 豁免行（核心/高重要度/近因）优先保留，不被普通行挤出预算。
+            try:
+                budget = max(80, int(self._memory_cfg("inject_char_budget", 240)))
+            except (TypeError, ValueError):
+                budget = 240
+            trimmed: list[str] = []
+            used = 0
+            for t, _ex in sorted(kept, key=lambda p: not p[1]):
+                # 装不下就跳过这一条、继续试后面的短行：原来 break 会让一条
+                # 超长行把后面本该装得下的豁免行一起丢掉。首条即使超预算也
+                # 保留（trimmed 为空时不 continue），保证不会空注入。
+                if used + len(t) + 1 > budget and trimmed:
+                    continue
+                trimmed.append(t)
+                used += len(t) + 1
+            # 时序块独立预算：与"事实+语义事件"的 inject_char_budget 各算各的，
+            # 保证加了日期维度也不会把身份事实挤掉。同一件事不许在两个块里
+            # 重复讲（"事件别交叉"）：时间线行要有 ≥60% 的二元组已出现在相关块
+            # 里才算重复——阈值不能低，2 字二元组很吵，低阈值会把"11-08 考试"
+            # 这种只有两三个词撞上的关键日子一起误杀。
+            relied = grams("\n".join(trimmed)) if trimmed else set()
+            tl_kept: list[tuple[str, int]] = []
+            tl_used = 0
+            if tl_seq:
+                try:
+                    tl_budget = max(0, int(self._memory_cfg("timeline_char_budget", 340)))
+                except (TypeError, ValueError):
+                    tl_budget = 340
+                for t, _ts, tier in reversed(tl_seq):
+                    tg = grams(t)
+                    if relied and tg and len(tg & relied) / float(len(tg)) >= 0.6:
+                        continue
+                    if tl_used + len(t) + 1 > tl_budget and tl_kept:
+                        break
+                    tl_kept.append((t, tier))
+                    tl_used += len(t) + 1
+                tl_kept.reverse()
+            if not trimmed and not tl_kept:
+                return
+            tl_lines = [t for t, _i in tl_kept]
+            tier_counts = [sum(1 for _t, i in tl_kept if i == k)
+                           for k in range(len(TIMELINE_TIERS))]
+            logger.info(
+                "[memoryv2] 注入记忆：相关 %d 行（事实 %d / 事件 %d）/ 时间线 %d 行"
+                "（近三 %d · 近一周 %d · 近半月 %d，相关 %d 字 + 时序 %d 字）",
+                len(trimmed), len(facts), len(events), len(tl_lines),
+                tier_counts[0], tier_counts[1], tier_counts[2], used, tl_used)
+            parts: list[str] = []
+            if trimmed:
+                parts.append("【你记得的旧事】（跟眼下这句话有关的，按相关度排）\n"
+                             + "\n".join(trimmed))
+            if tl_lines:
+                parts.append("【这些天的片段】（按日期排，不分相关不相关，是日子的底子）\n"
+                             + "\n".join(tl_lines))
+            block = (
+                "\n".join(parts)
+                + "\n（都是你亲身经历的事，自然带出来就好，别逐条复述或说「根据记忆」；"
+                "问到没有的事就直说记不清，不要编造。）"
+            )
+            # 追加到当前消息末尾而非 system_prompt：system+历史保持恒定，
+            # 才能命中模型前缀缓存（同 dafeiyu_core 表情包提示的做法）。
+            req.prompt = (str(getattr(req, "prompt", "") or "") + "\n\n" + block)
+            try:
+                req._memory_injected = True
+                req._memory_texts = trimmed + tl_lines
+            except Exception:  # noqa: BLE001
+                pass
+        except Exception as exc:  # noqa: BLE001 - 注入失败不能打断对话
+            # 打印异常类型：NameError 这类代码级硬错曾被吞成"记忆暂时不可用"
+            logger.warning(f"[memoryv2] 注入记忆失败: {type(exc).__name__}: {exc}")
+
+    @staticmethod
+    def _mem_rel_time(ts: int) -> str:
+        dt = time.time() - float(ts or 0)
+        if dt < 90:
+            return "刚刚"
+        if dt < 3600:
+            return f"{int(dt // 60)}分钟前"
+        if dt < 48 * 3600:
+            return f"{int(dt // 3600)}小时前"
+        return f"{int(dt // 86400)}天前"
+
+    # ==================== 时间线（"日子"这一维） ====================
+
+    @staticmethod
+    def _mem_clip(text: str, limit: int = TIMELINE_LINE_MAX) -> str:
+        """按标点收口，别把一句话截在半句上（"同一个坑—"这种读起来像坏的）。"""
+        text = str(text or "").strip()
+        if len(text) <= limit:
+            return text
+        seg = text[:limit]
+        for i in range(len(seg) - 1, max(6, len(seg) // 2) - 1, -1):
+            if seg[i] in "。！？；":
+                return seg[: i + 1]
+            if seg[i] in "，、：":
+                return seg[:i]
+        return seg.rstrip("，、；：—-—… ")
+
+    def _mem_day_line(self, text: str, limit: int = TIMELINE_LINE_MAX) -> str:
+        """从一篇日记里挑一句最实的话。
+
+        取最后一节（当天夜里那篇通常是收束）的正文段落，跳过「## 12:36」这类
+        时间戳行和「2026年11月10日」这类日期行，按"够长但不啰嗦"取最好的一句。
+        日记是她自己的话，比事件原文干净，也自带日期。limit 由所在时间档决定。"""
+        text = str(text or "").replace("用户", OWNER_NAME).replace("宠物", SELF_NAME)
+        sections = re.split(r"\n##\s*", text)
+        body = sections[-1] if sections else text
+        paras = [p.strip().replace("\n", " ") for p in re.split(r"\n\s*\n", body)]
+        best = ""
+        for p in paras:
+            if len(p) < 10 or p.startswith("#"):
+                continue
+            if re.match(r"^(?:20\d{2}年|\d{1,2}[:：]\d{2})", p):
+                continue
+            if min(len(p), limit) > len(best[:limit]) or not best:
+                best = p
+        return self._mem_clip(best, limit)
+
+    @staticmethod
+    def _mem_tier_index(delta: int) -> int:
+        """把"距今多少天"落到三档之一：0~2 → 0，3~6 → 1，7~14 → 2，更远 → -1。"""
+        for i, (edge, _w, _lim, _name) in enumerate(TIMELINE_TIERS):
+            if delta < edge:
+                return i
+        return -1
+
+    @staticmethod
+    def _mem_tier_quota(max_lines: int) -> list[int]:
+        """按系数把总条数分配到三档（最大余数法）。
+
+        系数就是"这一档值几分名额"：近三天 1.0、近一周 0.85、近半月 0.7。
+        max_lines=8 → 3 / 3 / 2；=6 → 3 / 2 / 1；=4 → 2 / 1 / 1。"""
+        weights = [t[1] for t in TIMELINE_TIERS]
+        total = sum(weights) or 1.0
+        raw = [max_lines * w / total for w in weights]
+        quotas = [int(r) for r in raw]
+        rest = max_lines - sum(quotas)
+        if rest > 0:
+            order = sorted(range(len(raw)), key=lambda i: raw[i] - quotas[i], reverse=True)
+            for i in order[:rest]:
+                quotas[i] += 1
+        return quotas
+
+    def _mem_timeline(self, max_lines: int) -> list[tuple[str, int, int]]:
+        """近 15 天分三档取句：日记优先，事件 summary 兜底。
+
+        三档互斥（每一天只落到一档），名额按系数分配，档内按日期由近到远等距
+        抽样。返回 (行文本, ts, 档序)，整体按日期正序——这一块只讲"什么时候
+        发生了什么"，不掺任何相关性排序（相关性归 recall，两块分开渲染）。"""
+        if max_lines <= 0:
+            return []
+        today = datetime.fromtimestamp(int(time.time())).date()
+        day_rows: dict[Any, str] = {}
+
+        # 1) 日记（主源）：一天一篇，取一句
+        diary_dir = ""
+        try:
+            from astrbot.core.utils.astrbot_path import get_astrbot_plugin_data_path
+            diary_dir = os.path.join(str(get_astrbot_plugin_data_path()),
+                                     "astrbot_plugin_dafeiyu", "diary")
+        except Exception:
+            diary_dir = ""
+        if diary_dir:
+            try:
+                names = os.listdir(diary_dir)
+            except OSError:
+                names = []
+            for fn in names:
+                if not fn.endswith(".md"):
+                    continue
+                try:
+                    dd = datetime.strptime(fn[:-3], "%Y-%m-%d").date()
+                except ValueError:
+                    continue
+                if self._mem_tier_index((today - dd).days) < 0:
+                    continue
+                try:
+                    txt = Path(diary_dir, fn).read_text(encoding="utf-8")
+                except OSError:
+                    continue
+                line = self._mem_day_line(txt)   # 先按最宽上限挑句，分档时再收
+                if line:
+                    day_rows[dd] = line
+
+        # 2) 事件兜底：哪天没写日记就用带 summary 的事件（原文仍进不了注入）
+        try:
+            evs = self._memv2.events.timeline(days=TIMELINE_TIERS[-1][0], per_day=1)
+        except Exception:
+            evs = []
+        for ev in evs:
+            try:
+                dd = datetime.fromtimestamp(int(ev.ts or 0)).date()
+            except (TypeError, ValueError):
+                continue
+            if dd in day_rows:
+                continue
+            text = (ev.summary or "").strip() or (ev.content or "").strip()
+            if text:
+                day_rows[dd] = text
+
+        quotas = self._mem_tier_quota(max_lines)
+        picked: list[tuple[Any, int]] = []
+        for i, (_edge, _w, limit, _name) in enumerate(TIMELINE_TIERS):
+            day_list = sorted((d for d in day_rows if self._mem_tier_index((today - d).days) == i),
+                              reverse=True)          # 档内：近 → 远
+            quota = quotas[i]
+            if quota <= 0 or not day_list:
+                continue
+            if len(day_list) > quota:
+                step = len(day_list) / float(quota)
+                day_list = [day_list[int(k * step)] for k in range(quota)]
+            for d in day_list:
+                picked.append((d, limit))
+        # 兜底：三档都没凑够时，用更早的日子补（只在时间窗内）
+        if len(picked) < max_lines:
+            used = {d for d, _l in picked}
+            spare = [d for d in sorted(day_rows, reverse=True)
+                     if d not in used and self._mem_tier_index((today - d).days) >= 0]
+            for d in spare[: max_lines - len(picked)]:
+                picked.append((d, TIMELINE_TIERS[-1][2]))
+        if not picked:
+            return []
+        picked.sort(key=lambda p: p[0])
+        out: list[tuple[str, int, int]] = []
+        for d, limit in picked:
+            text = self._mem_clip(day_rows[d], limit)
+            if not text:
+                continue
+            try:
+                ts = int(time.mktime(datetime(d.year, d.month, d.day).timetuple()))
+            except (OverflowError, ValueError):
+                ts = 0
+            out.append((f"·{d.strftime('%m-%d')} {text}", ts, self._mem_tier_index((today - d).days)))
+        return out
+
+    def _mem_format_recall(self, facts, events,
+                           event_max: int = EVENT_CONTENT_MAX) -> list[tuple[str, bool]]:
+        """召回行格式化，返回 (text, 豁免标记)。
+
+        豁免 = 核心事实 / 高重要度（imp≥0.8）/ 近 12h 事件：
+        相关性闸零交集时仍保留（"记最近的事"优先于字面重合）。
+        行数不在此截断——memory_inject 按 240 字预算统一裁剪。"""
+        lines: list[tuple[str, bool]] = []
+        for it in facts:
+            subj, obj = str(it.subject or ""), str(it.obj or "")
+            # obj 已自带主语（"用户学业绩点…"）时不再重复拼 "用户：用户…"
+            if subj and obj.startswith(subj):
+                text = f"{it.predicate}{obj}" if it.predicate else obj
+            elif it.predicate:
+                text = f"{subj}{it.predicate}：{obj}"
+            else:
+                text = f"{subj}：{obj}"
+            # 单条事实显示上限：存量 v1 导入的事实体常超 80 字，一条就吃掉
+            # 近一半预算（240 字），把同批相关事实全挤出去。
+            if len(text) > FACT_LINE_MAX:
+                text = text[: FACT_LINE_MAX - 1] + "…"
+            lines.append((text, bool(it.is_core or it.imp >= 0.8)))
+        for ev in events:
+            if not ev.content:
+                continue
+            # 质量闸：原文兜底/超长摘要可检索但不进注入。
+            # 判定以 is_degraded_content（当前口径）为准，落盘 degraded 字段只作
+            # 缓存/审计——这样旧口径（>80 字）误伤的合格摘要立刻回到注入，
+            # 不必等 --degrade-legacy 重写库；反过来旧标记也不能把好摘要关死。
+            if is_degraded_content(ev.content):
+                continue
+            lines.append((
+                f"- 约{self._mem_rel_time(ev.ts)}：{ev.content[:event_max]}",
+                bool(time.time() - float(ev.ts or 0) <= 12 * 3600 or ev.imp >= 0.8),
+            ))
+        return lines
+
+    # ==================== 增删查（命令 + Web API 共用） ====================
+
+    def _mem_subject(self, sender: str) -> str:
+        sender = str(sender or "").strip()
+        return OWNER_NAME if sender == str(self.owner_qid) else f"QQ{sender}"
+
+    def _memory_norm(self, text: str) -> str:
+        return re.sub(r"\s+", "", str(text or "")).strip("。，,.;；")[:40]
+
+    def _memory_add(self, sender: str, text: str, weight: int = 1) -> bool:
+        """写入一条事实。weight 沿用 v1 语义：1 普通 / 2 导入 / 3 手动核心。"""
+        clean = self._memory_norm(text)
+        if not clean:
+            return False
+        w = {3: 0.85, 2: 0.6}.get(int(weight or 1), 0.5)
+        _fid, added = self._memv2.add_fact(
+            subject=self._mem_subject(sender), predicate="", obj=clean,
+            weight=w, is_core=int(weight or 1) >= 3, imp=0.9)
+        return added
+
+    def _memory_list(self, sender: str) -> list[dict[str, Any]]:
+        subj = self._mem_subject(sender)
+        rows = [it for it in self._memv2.facts.items.values()
+                if it.subject == subj]
+        rows.sort(key=lambda it: (-it.weight, -it.last_update_ts))
+        return [
+            {"text": f"{it.subject}{it.predicate}：{it.obj}" if it.predicate
+             else f"{it.subject}：{it.obj}"}
+            for it in rows
+        ]
+
+    def _memory_delete(self, sender: str, keyword: str) -> int:
+        subj = self._mem_subject(sender)
+        kw = str(keyword or "").strip()
+        if not kw:
+            return 0
+        hits = [fid for fid, it in self._memv2.facts.items.items()
+                if it.subject == subj and kw in f"{it.subject}{it.predicate}{it.obj}"]
+        for fid in hits:
+            self._memv2.facts.items.pop(fid, None)
+        if hits:
+            self._memv2.facts.save()
+        return len(hits)
+
+    def _memory_clear(self, sender: str | None = None) -> int:
+        """清空事实层；sender=None 时清全部并连同情景事件一起清。"""
+        removed = 0
+        if sender is None:
+            removed = len(self._memv2.facts.items)
+            self._memv2.facts.items.clear()
+            self._memv2.facts.save()
+            removed += len(self._memv2.events.items)
+            self._memv2.events.items.clear()
+            self._memv2.events.save()
+            return removed
+        subj = self._mem_subject(sender)
+        hits = [fid for fid, it in self._memv2.facts.items.items()
+                if it.subject == subj]
+        for fid in hits:
+            self._memv2.facts.items.pop(fid, None)
+        if hits:
+            self._memv2.facts.save()
+        return len(hits)
+
+    # ==================== 斜杠指令 ====================
+
+    @staticmethod
+    def _memory_arg(event: AstrMessageEvent, command: str) -> str:
+        text = str(getattr(event, "message_str", "") or "").strip()
+        index = text.find(command)
+        if index >= 0:
+            text = text[index + len(command):].strip()
+        return text
+
+    @filter.command("记忆")
+    async def cmd_memory(self, event: AstrMessageEvent):
+        arg = self._memory_arg(event, "记忆")
+        sender = str(event.get_sender_id() or "")
+        if arg.isdigit() and arg != sender:
+            if not self._complain_is_owner(event):
+                yield event.plain_result(f"只有{OWNER_NAME}能看别人的记忆。")
+                return
+            sender = arg
+        facts = self._memory_list(sender)
+        n_ev = sum(1 for ev in self._memv2.events.items.values()
+                   if ev.status == "committed")
+        if not facts and not n_ev:
+            yield event.plain_result("我还没记住关于你的事情，多跟我说说就有了～")
+            return
+        lines = [f"{i}. {f.get('text')}" for i, f in enumerate(facts[:15], 1)]
+        body = "我记得关于你的事：\n" + "\n".join(lines)
+        if n_ev:
+            body += f"\n（另外还有 {n_ev} 段最近的共同经历可以聊～）"
+        yield event.plain_result(body)
+
+    @filter.command("记住")
+    async def cmd_memory_remember(self, event: AstrMessageEvent):
+        arg = self._memory_arg(event, "记住")
+        if not arg:
+            yield event.plain_result("用法：/记住 你想让我记住的事")
+            return
+        sender = str(event.get_sender_id() or "")
+        # 手动记的事是核心记忆：慢衰减 + 高权重
+        self._memory_add(sender, arg, weight=3)
+        yield event.plain_result(f"记住了：{self._memory_norm(arg)}")
+
+    @filter.command("忘掉")
+    async def cmd_memory_forget(self, event: AstrMessageEvent):
+        arg = self._memory_arg(event, "忘掉")
+        if not arg:
+            yield event.plain_result("用法：/忘掉 关键词")
+            return
+        removed = self._memory_delete(str(event.get_sender_id() or ""), arg)
+        if removed:
+            yield event.plain_result(f"忘掉了 {removed} 条相关记忆。")
+        else:
+            yield event.plain_result("没找到相关的记忆。")
+
+    @filter.command("清空记忆")
+    async def cmd_memory_clear(self, event: AstrMessageEvent):
+        arg = self._memory_arg(event, "清空记忆")
+        if arg == "全部":
+            if not self._complain_is_owner(event):
+                yield event.plain_result(f"只有{OWNER_NAME}能清空所有人的记忆。")
+                return
+            removed = self._memory_clear(None)
+            yield event.plain_result(f"已清空全部记忆（{removed} 条）。")
+            return
+        removed = self._memory_clear(str(event.get_sender_id() or ""))
+        yield event.plain_result(f"已清空关于你的 {removed} 条记忆。")
+
+    @filter.command("记忆帮助")
+    async def cmd_memory_help(self, event: AstrMessageEvent):
+        yield event.plain_result(HELP_TEXT)

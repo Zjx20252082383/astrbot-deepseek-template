@@ -1,0 +1,2116 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="author" content="识海项目组" />
+  <meta name="author" content="大连理工大学软件学院" />
+  <title>识海：融合人格心理学的 QQ 数字生活任务系统</title>
+  <style>
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="paper_style.css" />
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">识海：融合人格心理学的 QQ 数字生活任务系统</h1>
+<p class="subtitle">第二十届全国大学生软件创新大赛 ——
+面向移动终端的系统级智能体验</p>
+<p class="author">识海项目组</p>
+<p class="author">大连理工大学软件学院</p>
+<p class="date">2026 年 11 月</p>
+</header>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a href="#第1章-引言" id="toc-第1章-引言">第1章 引言</a>
+<ul>
+<li><a href="#从单点问答到持续陪伴" id="toc-从单点问答到持续陪伴">1.1
+从单点问答到持续陪伴</a></li>
+<li><a href="#本文的组织方式" id="toc-本文的组织方式">1.2
+本文的组织方式</a></li>
+<li><a href="#主要贡献" id="toc-主要贡献">1.3 主要贡献</a></li>
+</ul></li>
+<li><a href="#第2章-问题定义与研究边界"
+id="toc-第2章-问题定义与研究边界">第2章 问题定义与研究边界</a>
+<ul>
+<li><a href="#形式化问题" id="toc-形式化问题">2.1 形式化问题</a></li>
+<li><a href="#与现有方案的差异" id="toc-与现有方案的差异">2.2
+与现有方案的差异</a></li>
+<li><a href="#研究边界" id="toc-研究边界">2.3 研究边界</a></li>
+</ul></li>
+<li><a href="#第3章-状态空间与时间尺度"
+id="toc-第3章-状态空间与时间尺度">第3章 状态空间与时间尺度</a>
+<ul>
+<li><a href="#六分量状态" id="toc-六分量状态">3.1 六分量状态</a></li>
+<li><a href="#快慢分层" id="toc-快慢分层">3.2 快慢分层</a></li>
+<li><a href="#量纲与稳定性" id="toc-量纲与稳定性">3.3
+量纲与稳定性</a></li>
+</ul></li>
+<li><a href="#第4章-情绪场动力学" id="toc-第4章-情绪场动力学">第4章
+情绪场动力学</a>
+<ul>
+<li><a href="#情绪-ode" id="toc-情绪-ode">4.1 情绪 ODE</a></li>
+<li><a href="#记忆对情绪的染色" id="toc-记忆对情绪的染色">4.2
+记忆对情绪的染色</a></li>
+<li><a href="#稳定性与边界" id="toc-稳定性与边界">4.3
+稳定性与边界</a></li>
+</ul></li>
+<li><a href="#第5章-记忆图谱扩散衰减与-hebbian"
+id="toc-第5章-记忆图谱扩散衰减与-hebbian">第5章 记忆图谱：扩散、衰减与
+Hebbian</a>
+<ul>
+<li><a href="#为什么不用扁平向量库" id="toc-为什么不用扁平向量库">5.1
+为什么不用扁平向量库</a></li>
+<li><a href="#扩散激活" id="toc-扩散激活">5.2 扩散激活</a></li>
+<li><a href="#两套衰减图谱节点的情绪调制记忆库的保持率曲线"
+id="toc-两套衰减图谱节点的情绪调制记忆库的保持率曲线">5.3
+两套衰减：图谱节点的情绪调制，记忆库的保持率曲线</a></li>
+<li><a href="#hebbian-边权两道门防记忆错构"
+id="toc-hebbian-边权两道门防记忆错构">5.4 Hebbian
+边权：两道门防”记忆错构”</a></li>
+<li><a href="#三层融合与-quote-隔离" id="toc-三层融合与-quote-隔离">5.5
+三层融合与 quote 隔离</a></li>
+<li><a href="#重要度自评让模型凭感受定轻重"
+id="toc-重要度自评让模型凭感受定轻重">5.6
+重要度自评：让模型凭感受定轻重</a></li>
+<li><a href="#时序注入三档时间线与相关性检索分块"
+id="toc-时序注入三档时间线与相关性检索分块">5.7
+时序注入：三档时间线，与相关性检索分块</a></li>
+<li><a href="#复习计数两道闸防永生记忆"
+id="toc-复习计数两道闸防永生记忆">5.8
+复习计数：两道闸，防”永生记忆”</a></li>
+<li><a href="#天体检日不是每天清扫" id="toc-天体检日不是每天清扫">5.9
+3/7/15 天体检日：不是每天清扫</a></li>
+</ul></li>
+<li><a href="#第6章-人格与自我调节" id="toc-第6章-人格与自我调节">第6章
+人格与自我调节</a>
+<ul>
+<li><a href="#大五人格作为慢变量" id="toc-大五人格作为慢变量">6.1
+大五人格作为慢变量</a></li>
+<li><a href="#egoregulator越阈不等于发送"
+id="toc-egoregulator越阈不等于发送">6.2
+EgoRegulator：越阈不等于发送</a></li>
+<li><a href="#与-llm-审议层的边界" id="toc-与-llm-审议层的边界">6.3 与
+LLM 审议层的边界</a></li>
+</ul></li>
+<li><a href="#第7章-念头阈值与由头锚点"
+id="toc-第7章-念头阈值与由头锚点">第7章 念头、阈值与由头锚点</a>
+<ul>
+<li><a href="#念头累积" id="toc-念头累积">7.1 念头累积</a></li>
+<li><a href="#有效阈值" id="toc-有效阈值">7.2 有效阈值</a></li>
+<li><a href="#由头锚点与可识别性" id="toc-由头锚点与可识别性">7.3
+由头锚点与可识别性</a></li>
+<li><a href="#重复不等于退化" id="toc-重复不等于退化">7.4
+重复不等于退化</a></li>
+</ul></li>
+<li><a href="#第8章-目标向量与策略选择"
+id="toc-第8章-目标向量与策略选择">第8章 目标向量与策略选择</a>
+<ul>
+<li><a href="#四维目标" id="toc-四维目标">8.1 四维目标</a></li>
+<li><a href="#策略打分" id="toc-策略打分">8.2 策略打分</a></li>
+<li><a href="#目标演化" id="toc-目标演化">8.3 目标演化</a></li>
+</ul></li>
+<li><a href="#第9章-自适应演化与参数变更"
+id="toc-第9章-自适应演化与参数变更">第9章 自适应演化与参数变更</a>
+<ul>
+<li><a href="#慢参数在线学习" id="toc-慢参数在线学习">9.1
+慢参数在线学习</a></li>
+<li><a href="#人格漂移" id="toc-人格漂移">9.2 人格漂移</a></li>
+<li><a href="#三层慢演化" id="toc-三层慢演化">9.3 三层慢演化</a></li>
+</ul></li>
+<li><a href="#第10章-动作空间行为与工具"
+id="toc-第10章-动作空间行为与工具">第10章 动作空间：行为与工具</a>
+<ul>
+<li><a href="#统一动作表" id="toc-统一动作表">10.1 统一动作表</a></li>
+<li><a href="#候选过滤与执行" id="toc-候选过滤与执行">10.2
+候选过滤与执行</a></li>
+<li><a href="#行为不是定时器" id="toc-行为不是定时器">10.3
+行为不是定时器</a></li>
+</ul></li>
+<li><a href="#第11章-系统架构与实现"
+id="toc-第11章-系统架构与实现">第11章 系统架构与实现</a>
+<ul>
+<li><a href="#分层架构" id="toc-分层架构">11.1 分层架构</a></li>
+<li><a href="#数据契约" id="toc-数据契约">11.2 数据契约</a></li>
+<li><a href="#会话隔离与记忆作用域" id="toc-会话隔离与记忆作用域">11.3
+会话隔离与记忆作用域</a></li>
+<li><a href="#与平台解耦" id="toc-与平台解耦">11.4 与平台解耦</a></li>
+<li><a href="#多模态感知闭环" id="toc-多模态感知闭环">11.5
+多模态感知闭环</a></li>
+<li><a href="#上下文闭合自述入史指代焦点与打断抢救"
+id="toc-上下文闭合自述入史指代焦点与打断抢救">11.6
+上下文闭合：自述入史、指代焦点与打断抢救</a>
+<ul>
+<li><a href="#根因整段覆盖写与钩子时序"
+id="toc-根因整段覆盖写与钩子时序">11.6.1
+根因：整段覆盖写与钩子时序</a></li>
+<li><a href="#三处修复" id="toc-三处修复">11.6.2 三处修复</a></li>
+<li><a href="#验证" id="toc-验证">11.6.3 验证</a></li>
+</ul></li>
+<li><a href="#任务层挂载点" id="toc-任务层挂载点">11.7
+任务层挂载点</a></li>
+</ul></li>
+<li><a href="#第12章-表达层意图包与人格边界"
+id="toc-第12章-表达层意图包与人格边界">第12章
+表达层：意图包与人格边界</a>
+<ul>
+<li><a href="#意图包" id="toc-意图包">12.1 意图包</a></li>
+<li><a href="#双信号源" id="toc-双信号源">12.2 双信号源</a></li>
+<li><a href="#语录隔离与断言改写" id="toc-语录隔离与断言改写">12.3
+语录隔离与断言改写</a></li>
+<li><a href="#重复与人格一致" id="toc-重复与人格一致">12.4
+重复与人格一致</a></li>
+<li><a href="#提示词瘦身" id="toc-提示词瘦身">12.5 提示词瘦身</a></li>
+</ul></li>
+<li><a href="#第13章-一致性守护" id="toc-第13章-一致性守护">第13章
+一致性守护</a>
+<ul>
+<li><a href="#四类故障" id="toc-四类故障">13.1 四类故障</a></li>
+<li><a href="#四不变量" id="toc-四不变量">13.2 四不变量</a></li>
+<li><a href="#五道防线" id="toc-五道防线">13.3 五道防线</a></li>
+<li><a href="#行动记忆" id="toc-行动记忆">13.4 行动记忆</a></li>
+<li><a href="#上线验证" id="toc-上线验证">13.5 上线验证</a></li>
+</ul></li>
+<li><a href="#第14章-生活任务层从短信到闭环"
+id="toc-第14章-生活任务层从短信到闭环">第14章
+生活任务层：从短信到闭环</a>
+<ul>
+<li><a href="#任务模型" id="toc-任务模型">14.1 任务模型</a></li>
+<li><a href="#确定性通道" id="toc-确定性通道">14.2 确定性通道</a></li>
+<li><a href="#状态机" id="toc-状态机">14.3 状态机</a></li>
+<li><a href="#情境融合与为什么现在提醒"
+id="toc-情境融合与为什么现在提醒">14.4
+情境融合与”为什么现在提醒”</a></li>
+<li><a href="#代码落地与运行证据" id="toc-代码落地与运行证据">14.5
+代码落地与运行证据</a></li>
+<li><a href="#隐私与边界" id="toc-隐私与边界">14.6 隐私与边界</a></li>
+</ul></li>
+<li><a href="#第15章-仿真设置" id="toc-第15章-仿真设置">第15章
+仿真设置</a>
+<ul>
+<li><a href="#目标与原则" id="toc-目标与原则">15.1 目标与原则</a></li>
+<li><a href="#积分方法与参数" id="toc-积分方法与参数">15.2
+积分方法与参数</a></li>
+<li><a href="#复现口径" id="toc-复现口径">15.3 复现口径</a></li>
+</ul></li>
+<li><a href="#第16章-数值自洽性结果"
+id="toc-第16章-数值自洽性结果">第16章 数值自洽性结果</a>
+<ul>
+<li><a href="#十四组检查" id="toc-十四组检查">16.1 十四组检查</a></li>
+<li><a href="#关键数字" id="toc-关键数字">16.2 关键数字</a></li>
+<li><a href="#解释边界" id="toc-解释边界">16.3 解释边界</a></li>
+</ul></li>
+<li><a href="#第17章-长时稳定与鲁棒性"
+id="toc-第17章-长时稳定与鲁棒性">第17章 长时稳定与鲁棒性</a>
+<ul>
+<li><a href="#小时长时稳定" id="toc-小时长时稳定">17.1 200
+小时长时稳定</a></li>
+<li><a href="#参数扰动" id="toc-参数扰动">17.2 参数扰动</a></li>
+<li><a href="#差异化衰减" id="toc-差异化衰减">17.3 差异化衰减</a></li>
+<li><a href="#极端与饱和" id="toc-极端与饱和">17.4 极端与饱和</a></li>
+<li><a href="#本章结论" id="toc-本章结论">17.5 本章结论</a></li>
+</ul></li>
+<li><a href="#第18章-实现与真实场景验证"
+id="toc-第18章-实现与真实场景验证">第18章 实现与真实场景验证</a>
+<ul>
+<li><a href="#代码与运行事实" id="toc-代码与运行事实">18.1
+代码与运行事实</a></li>
+<li><a href="#任务链路冒烟" id="toc-任务链路冒烟">18.2
+任务链路冒烟</a></li>
+<li><a href="#真实进程" id="toc-真实进程">18.3 真实进程</a></li>
+<li><a href="#手机端缺口" id="toc-手机端缺口">18.4 手机端缺口</a></li>
+<li><a href="#失败案例" id="toc-失败案例">18.5 失败案例</a></li>
+</ul></li>
+<li><a href="#第19章-讨论" id="toc-第19章-讨论">第19章 讨论</a>
+<ul>
+<li><a href="#为什么要把动机与语言分开"
+id="toc-为什么要把动机与语言分开">19.1 为什么要把动机与语言分开</a></li>
+<li><a href="#限制" id="toc-限制">19.2 限制</a></li>
+<li><a href="#伦理与隐私" id="toc-伦理与隐私">19.3 伦理与隐私</a></li>
+<li><a href="#后续工作" id="toc-后续工作">19.4 后续工作</a></li>
+</ul></li>
+<li><a href="#第20章-结论" id="toc-第20章-结论">第20章 结论</a>
+<ul>
+<li><a href="#总结" id="toc-总结">20.1 总结</a></li>
+<li><a href="#贡献回顾" id="toc-贡献回顾">20.2 贡献回顾</a></li>
+<li><a href="#展望" id="toc-展望">20.3 展望</a></li>
+</ul></li>
+<li><a href="#参考文献" id="toc-参考文献">参考文献</a></li>
+<li><a href="#附录-a-仿真设置与复现说明"
+id="toc-附录-a-仿真设置与复现说明">附录 A 仿真设置与复现说明</a></li>
+<li><a href="#附录-b-复现结果与实现索引"
+id="toc-附录-b-复现结果与实现索引">附录 B 复现结果与实现索引</a>
+<ul>
+<li><a href="#b.1-运行结果摘要" id="toc-b.1-运行结果摘要">B.1
+运行结果摘要</a></li>
+<li><a href="#b.2-十五张检查图" id="toc-b.2-十五张检查图">B.2
+十五张检查图</a></li>
+<li><a href="#b.3-仿真脚本结构" id="toc-b.3-仿真脚本结构">B.3
+仿真脚本结构</a></li>
+<li><a href="#b.4-人格与记忆实现索引"
+id="toc-b.4-人格与记忆实现索引">B.4 人格与记忆实现索引</a></li>
+</ul></li>
+</ul>
+</nav>
+<p><strong>摘要</strong></p>
+<p>本文把长期陪伴 AI
+拆成三层：动力学内核负责”什么时候、为什么”，表达层负责”怎么说”，生活任务层负责”事情办到哪一步”。系统以六分量状态
+z(t)=[e(t),a(v,t),θ(t),ψ,u(t),g(t)] 为核心，用情绪场、图谱扩散、Hebbian
+边权、念头累积、自我调节与慢演化构成闭环；把”念头越阈”改为”越阈且自我许可”，让每个主动行为都能回溯到由头。生活任务层把短信快递做成”发现—确认—排期—提醒—回执—归档”状态机，快递提醒走确定性通道，不进入念头阈值。本文给出
+20 章结构、14 组数值检查、12 条注册行为与 51
+个工具的实现口径；记忆库按艾宾浩斯保持率分桶衰减（事实 15 天 / 事件 30
+天 / 核心 90
+天），稳态度由重要度自评、情绪峰值与跨天复习次数共同决定，归档只在
+3/7/15
+天三个体检日发生且只移不删；会话层支持群聊按人隔离、长期事实按发送者归并，内核仍保持单一自我；短上下文再做三处闭合（语音自述补记入史、指代焦点实体落盘、打断前抢救半截回复）；文末如实标注手机端未打通、多用户独立心智未实现与仿真外部效度边界。</p>
+<p>关键词：数字生命；耦合动力学；人格心理学；主动行为；生活任务；一致性守护</p>
+<h1 id="第1章-引言">第1章 引言</h1>
+<h2 id="从单点问答到持续陪伴">1.1 从单点问答到持续陪伴</h2>
+<p>主流陪伴 AI
+把情绪、动机、人格全部交给大模型隐状态：同一句话，换一个会话就可能换一种心情；主动行为由提示词或定时器触发，既不可控，也不可解释。识海把”什么时候说话、为什么说话”从语言生成中拆出来，交给一个独立的时序状态系统；大模型只负责”怎么说”。</p>
+<p>这条分界线带来三个直接后果：情绪可以跨会话残留，记忆可以按情感强度差异化衰减，每一个自发动作都能回溯到具体的情绪、记忆、念头或任务来源。本文把这条链路整理成
+20 章：先给原理与方程，再给架构与任务，最后给仿真与结论。</p>
+<p><img src="media/image1.png"
+style="width:5.98425in;height:1.84454in" /></p>
+<p>图 1-1 20 章结构：原理—架构—方程—仿真—结论</p>
+<h2 id="本文的组织方式">1.2 本文的组织方式</h2>
+<p>第 2—3 章定义问题与状态空间；第 4—9
+章给出情绪、记忆、人格、念头、目标与演化的方程；第 10—14
+章给出动作空间、系统架构、表达层、一致性守护与生活任务层；第 15—18
+章给出仿真设置、数值结果、长时稳定与真实场景验证；第 19—20
+章讨论边界并收束结论。结论不再夹在中间，统一放到第 20 章。</p>
+<h2 id="主要贡献">1.3 主要贡献</h2>
+<p>（1）提出六分量耦合状态
+z(t)=[e,a,θ,ψ,u,g]，把情绪场、图谱激活、慢参数、人格、念头与目标写在同一组方程里；（2）把”念头越阈”改为”越阈且自我许可”，用
+EgoRegulator 解释”为什么现在说”；（3）把 12 条注册行为与 51 个 LLM
+工具收进同一张动作表，形成 63
+个可解释调用入口；（4）新增生活任务层，把短信快递、排期、提醒、确认、归档做成确定性状态机，并与心理动力学共用同一份状态快照；（5）用
+11
+组数值检查与真实运行日志验证链路自洽，同时如实标注外部效度边界；（6）在架构层给出会话隔离与记忆作用域：短上下文按会话分桶、长期事实按发送者归并、内核保持单一自我，并用同会话新消息取消旧回复任务消除时序压栈；（7）给出短上下文的闭合机制：语音自述在发送结束后补记入史、指代焦点实体落盘跨重启绑定、打断前抢救半截回复，并指出”整段覆盖写
++ 钩子时序”这一框架级落库根因。</p>
+<h1 id="第2章-问题定义与研究边界">第2章 问题定义与研究边界</h1>
+<h2 id="形式化问题">2.1 形式化问题</h2>
+<p>给定用户消息流 X={x1,…,xn}、历史交互记忆 M={(xi,yi,ti)}、以及情境
+C（时间、课表、地点、短信、设备状态），要求构建系统
+f:(X,M,C)→(Y,e,a,T)，其中 Y 为回复序列，e(t) 为连续情绪状态，a(v,t)
+为记忆激活状态，T 为生活任务状态。系统需要同时满足四条约束：</p>
+<p>（a）情绪连续性：e(t)
+不随单轮对话跳变，跨会话保留残留；（b）记忆可累积：新交互写入图谱，旧记忆按情感强度差异化衰减；（c）行为可解释：每个自发动作可回溯到情绪、记忆、念头或任务来源；（d）记忆零
+LLM
+成本：检索与衰减不调用大模型。生活任务层再追加一条（e）任务可闭环：发现、确认、排期、提醒、回执、归档六个环节都不丢状态。</p>
+<p><em>f:(X,M,C)→(Y,e,a,T) （2-1）</em></p>
+<h2 id="与现有方案的差异">2.2 与现有方案的差异</h2>
+<p>现有方案大多是”强 LLM + Prompt +
+向量记忆”：情绪靠提示词维持，记忆靠全量嵌入检索，主动行为靠定时器。它们能生成像样的句子，但很难回答三个问题：为什么此刻主动？为什么是这件事？为什么不是下一次？识海的差异是把动机、情绪、记忆与任务状态做成可读的时序变量，把语言生成降为表达层。</p>
+<h2 id="研究边界">2.3 研究边界</h2>
+<p>本文不宣称系统具备意识或主观体验。心理学概念只作为设计动机的来源，不作为系统模块名：论文中的”快动力学内核、门控调节器、硬安全守护”分别对应情绪/记忆/念头、释放许可、I1–I4
+守护；代码与接口不按”本我—自我—超我”命名。当前版本是单用户设计：私聊天然一人一会话，群聊在
+unique_session
+下把会话键改为”发送者_群号”，不同群友的短上下文互不可见；长期事实记忆以发送者为键，跨会话共享；内核
+z(t)
+与图谱仍是单一自我，只对用户会话开放读写。多用户各自独立心智、多平台实例与手机独立端仍未实现。仿真只证明数值自洽性与边界行为，不证明线上因果效应；真实场景验证以本机
+AstrBot 运行日志与任务状态文件为准。</p>
+<h1 id="第3章-状态空间与时间尺度">第3章 状态空间与时间尺度</h1>
+<h2 id="六分量状态">3.1 六分量状态</h2>
+<p>系统状态由六个分量构成。快状态承载”此刻的心情与记忆”，慢状态承载”长期的性格与目标”，念头与任务状态负责”是否行动、行动到哪一步”。</p>
+<p><em>z(t)=[e(t)∈R6, a(v,t)∈R|V|, θ(t)∈Rd, ψ∈R5, u(t)∈R, g(t)∈R4]
+（3-1）</em></p>
+<p>表 3-1 状态分量与时间尺度</p>
+<table style="width:98%;">
+<colgroup>
+<col style="width: 17%" />
+<col style="width: 46%" />
+<col style="width: 17%" />
+<col style="width: 17%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: center;"><strong>分量</strong></th>
+<th style="text-align: left;"><strong>含义</strong></th>
+<th style="text-align: left;"><strong>取值范围</strong></th>
+<th style="text-align: left;"><strong>时间尺度</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: center;">e(t)</td>
+<td
+style="text-align: left;">六维情绪场：happy/sad/angry/fear/love/surprise</td>
+<td style="text-align: left;">[0,1]</td>
+<td style="text-align: left;">小时级</td>
+</tr>
+<tr>
+<td style="text-align: center;">a(v,t)</td>
+<td style="text-align: left;">图谱节点激活</td>
+<td style="text-align: left;">[0,1]</td>
+<td style="text-align: left;">小时—天级</td>
+</tr>
+<tr>
+<td style="text-align: center;">θ(t)</td>
+<td style="text-align: left;">慢参数：阈值、衰减、边先验</td>
+<td style="text-align: left;">实数</td>
+<td style="text-align: left;">天—周级</td>
+</tr>
+<tr>
+<td style="text-align: center;">ψ</td>
+<td style="text-align: left;">大五人格 (O,C,E,A,N)</td>
+<td style="text-align: left;">[0,1]</td>
+<td style="text-align: left;">月级</td>
+</tr>
+<tr>
+<td style="text-align: center;">u(t)</td>
+<td style="text-align: left;">念头强度</td>
+<td style="text-align: left;">[0,3]</td>
+<td style="text-align: left;">小时级</td>
+</tr>
+<tr>
+<td style="text-align: center;">g(t)</td>
+<td style="text-align: left;">关系/记忆/自我/回避四目标</td>
+<td style="text-align: left;">[0,1]</td>
+<td style="text-align: left;">天—周级</td>
+</tr>
+</tbody>
+</table>
+<h2 id="快慢分层">3.2 快慢分层</h2>
+<p>快状态每轮更新，慢状态按天或按周更新，人格按月漂移。三层时间尺度分开的好处是：单轮对话不会把人格带偏，长期反馈也不会被一次情绪淹没。图
+3-1 给出六个分量之间的五条回路。</p>
+<p><img src="media/image2.png"
+style="width:5.98425in;height:3.53615in" /></p>
+<p>图 3-1 六个状态分量与五条耦合回路</p>
+<h2 id="量纲与稳定性">3.3 量纲与稳定性</h2>
+<p>情绪采用小时为时间单位，弛豫时间 τ 均大于 0.5 h，显式欧拉更新满足
+|1-1/τ|&lt;1，不会数值振荡。念头 u(t) 是累积量，上界 3.0
+是”强度上界”，不是变化率上界；阈值 2.10 与 u(t)
+同量纲。任务时间用绝对时间戳，避免跨天漂移。</p>
+<h1 id="第4章-情绪场动力学">第4章 情绪场动力学</h1>
+<h2 id="情绪-ode">4.1 情绪 ODE</h2>
+<p>每一维情绪独立弛豫，同时受外部刺激、内部记忆刺激与情绪互激励影响。</p>
+<p><em>τi·dei/dt = -ei + κ·[sext,i + sint,i] + η·ΣjWijej
+（4-1）</em></p>
+<p>τ_i 是第 i 维情绪的弛豫时间；-e_i 是自然衰减；s_ext
+来自用户输入或语音情绪；s_int 来自被召回的记忆节点；W 是 6×6
+情绪互激励矩阵，采用对称假设以保留梯度流解释。</p>
+<p>表 4-1 情绪弛豫时间与工程含义</p>
+<table style="width:97%;">
+<colgroup>
+<col style="width: 30%" />
+<col style="width: 30%" />
+<col style="width: 36%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: center;"><strong>维度</strong></th>
+<th style="text-align: left;"><strong>τ（小时）</strong></th>
+<th style="text-align: left;"><strong>工程含义</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: center;">happy</td>
+<td style="text-align: left;">6</td>
+<td style="text-align: left;">开心退得较快，避免一直亢奋</td>
+</tr>
+<tr>
+<td style="text-align: center;">sad</td>
+<td style="text-align: left;">12</td>
+<td style="text-align: left;">低落有残留，但不跨周</td>
+</tr>
+<tr>
+<td style="text-align: center;">angry</td>
+<td style="text-align: left;">2</td>
+<td style="text-align: left;">愤怒最短，避免累积成冲突</td>
+</tr>
+<tr>
+<td style="text-align: center;">fear</td>
+<td style="text-align: left;">3</td>
+<td style="text-align: left;">恐惧中等，给安全感留窗口</td>
+</tr>
+<tr>
+<td style="text-align: center;">love</td>
+<td style="text-align: left;">24</td>
+<td style="text-align: left;">亲密感最长，跨天保持</td>
+</tr>
+<tr>
+<td style="text-align: center;">surprise</td>
+<td style="text-align: left;">1</td>
+<td style="text-align: left;">惊讶最短，避免噪声</td>
+</tr>
+</tbody>
+</table>
+<h2 id="记忆对情绪的染色">4.2 记忆对情绪的染色</h2>
+<p>内部刺激 s_int,i=Σ a(v,t)·E_v,i，其中 E_v,i 是节点 v 在第 i
+维情绪上的标签强度。被召回的高情感节点会给当前心情”染色”：想起往事，往事又影响当下。该式与第
+5 章扩散激活共用同一份 a(v,t)，不需要额外检索。</p>
+<h2 id="稳定性与边界">4.3 稳定性与边界</h2>
+<p>当外部刺激为 0 时，e(t) 按指数回到 0；当刺激持续饱和时，e(t) 被 W 与
+κ 限制在 [0,1] 内。本文不对 W
+的非对称情形做稳定性证明，只在对称假设下给出数值检查；这一限制在第 19
+章如实标注。</p>
+<h1 id="第5章-记忆图谱扩散衰减与-hebbian">第5章 记忆图谱：扩散、衰减与
+Hebbian</h1>
+<h2 id="为什么不用扁平向量库">5.1 为什么不用扁平向量库</h2>
+<p>陪伴场景需要的不是”相似段落”，而是”这条记忆和谁一起被想起、想起后情绪怎么变”。扁平向量库只返回
+top-k
+相似项，无法表达共激活、边权与情感衰减。识海用神经图谱：节点是事实、情绪、事件、语录、高亮，边是共现或因果关系。</p>
+<p><img src="media/image3.png"
+style="width:5.98425in;height:3.21988in" /></p>
+<p>图 5-1 神经图谱的扩散激活与双衰减</p>
+<h2 id="扩散激活">5.2 扩散激活</h2>
+<p>每个节点的激活值 = 自身衰减后的剩余 + 邻居通过边权传来的能量。</p>
+<p><em>a(v,t+Δt) = (1-λv(e))·a(v,t) + Σu∈N(v) M(u,v)·a(u,t)/d(u)
+（5-1）</em></p>
+<p>N(v) 是指向 v 的邻居集合，M(u,v) 是边权，d(u)
+是出度。扩散只沿已有边进行，不调用
+LLM；召回结果只把节点摘要送进意图包，不把全文塞进提示词。</p>
+<p>式 5-1 写作离散形式便于阅读，仿真与实现里衰减项用精确指数 exp(−λv·Δt)
+代替
+(1−λv·Δt)：后者在步长变化时会系统性漂移，同一组参数换个步长曲线就变形（§3.3）。</p>
+<h2 id="两套衰减图谱节点的情绪调制记忆库的保持率曲线">5.3
+两套衰减：图谱节点的情绪调制，记忆库的保持率曲线</h2>
+<p>系统里有两种”忘记”，物理含义不同，不能共用一个衰减常数。</p>
+<p>第一套是<strong>图谱节点激活</strong>
+a(v,t)：它是”此刻这条记忆有多亮”，秒级到小时级。它的衰减率受当前主导情绪与节点情感强度共同调制：</p>
+<p><em>λv(e) = λtype / (1 + α·edom·Ev) （5-2）</em></p>
+<p>λ_type
+由节点类型决定（fact=0.1，emotion=0.01，event=0.05，highlight=0.005）；α=3.0；e_dom=max(e(t))。物理含义：开心时美好记忆衰减更慢，低落时负向记忆保留更久——情绪反向调制记忆，而不是记忆单向决定情绪。</p>
+<p>第二套是<strong>记忆库条目的保持率</strong>：事实与事件条目回答的是”这条东西还记不记得”，天级到月级。它不再用”每步乘一个衰减系数”，而是艾宾浩斯保持率曲线：</p>
+<p><em>R(Δt) = exp(−Δt / S) （5-3）</em></p>
+<p>R∈(0,1] 是保持率，Δt 以小时计，S 是记忆强度（稳态度，小时）。S
+由三个因子相乘决定：</p>
+<p><em>S = (1 + β·imp)·(1 + αE·Ev)·(1 + βN·Nrecall) （5-4）</em></p>
+<p>β=2.0 是重要度系数（imp 为固结时 LLM 自评的 0–1 重要度，见
+5.6）；α_E=2.0、E_v
+是事件冻结时的情绪峰值（事实层没有独立情绪字段，此处退化为
+1）；β_N=1.5、N_recall 是”跨天有效复习次数”，上限 12（见 5.8）。</p>
+<p>换算成衰减率就是 λ_eff = λ/S，其中基础衰减率按类型分桶：</p>
+<p><em>λ = ln2 / (T½·24) （5-5）</em></p>
+<p>T½ 是各桶的基础半衰期，单位为天。三桶标定见表 5-1。</p>
+<p>表 5-1 记忆库的分桶半衰期与”温和档”理由</p>
+<table style="width:97%;">
+<colgroup>
+<col style="width: 14%" />
+<col style="width: 18%" />
+<col style="width: 20%" />
+<col style="width: 43%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: center;"><strong>桶</strong></th>
+<th style="text-align: left;"><strong>T½（天）</strong></th>
+<th style="text-align: left;"><strong>λ（h⁻¹）</strong></th>
+<th style="text-align: left;"><strong>标定理由</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: center;">事实 fact</td>
+<td style="text-align: left;">15</td>
+<td style="text-align: left;">1.93×10⁻³</td>
+<td style="text-align: left;">具体事实半个月不提就该淡；再
+短就是短期工作记忆</td>
+</tr>
+<tr>
+<td style="text-align: center;">事件 event</td>
+<td style="text-align: left;">30</td>
+<td style="text-align: left;">9.63×10⁻⁴</td>
+<td style="text-align: left;">事件带情境，比纯事实更值得
+留，一个月是”还记得那天”的 量级</td>
+</tr>
+<tr>
+<td style="text-align: center;">核心 core</td>
+<td style="text-align: left;">90</td>
+<td style="text-align: left;">3.21×10⁻⁴</td>
+<td style="text-align: left;">身份、承诺、关系锚点：三个月
+不提也仍在，但不再是永久</td>
+</tr>
+</tbody>
+</table>
+<p>这个标定是”长期陪伴”而不是”阿尔茨海默”：如果事实半衰期取 3
+天，上周末说的重要事这周三就全忘了。反过来，纯常数衰减也有问题——所有记忆同时同速淡出，说不清”为什么这条记得、那条忘了”。分桶加
+S
+的组合让差异来自三件可解释的事：这条有多重要（imp）、当时情绪多重（E_v）、后来被想起过几次（N_recall）。</p>
+<h2 id="hebbian-边权两道门防记忆错构">5.4 Hebbian
+边权：两道门防”记忆错构”</h2>
+<p>两个节点在同一窗口内被同时点亮，边权增强；夜间梦境固化时修剪弱边。</p>
+<p><em>M(u,v) ← M(u,v) + γ·𝟙[a(u)&gt;θact]·𝟙[a(v)&gt;θact]
+（5-6）</em></p>
+<p>朴素的”一起亮就连边”会产生心理学上的记忆错构（confabulation）：前摄抑制与倒摄抑制说明，新记忆会干扰旧记忆，旧记忆也会压制新记忆。如果两个事件节点时间贴得很近但属于不同主体（“用户抱怨的
+A”与”机器人自己说的
+B”），一旦连边，它们就会在后续召回里被拼成一句”我记错了”。因此实现里加了两道门：</p>
+<p><strong>门一，跨主体硬门</strong>：<code>sender_u != sender_v</code>
+直接不连。这是硬约束，不是权重折扣。</p>
+<p><strong>门二，时间邻近惩罚</strong>：同一主体、两个节点创建时间相差
+24h 以内，且这条边还没被反复共现确立过（共现次数 &lt;3）时，本次只加
+γ·0.2。碰巧在同一场对话里被一起提起的两件事（“点外卖”和”下雨了”）不该长成强关联；只有跨过更长时间窗、被多次共现的边，才算真正的关联。</p>
+<p>需要说明的是，代码里没有可调用的因果判定器（is_causal
+无处可取），“共现次数”只是因果关系的代理指标。因此门二做的是<strong>降低假阳性</strong>，不保证因果正确——这是本章的方法论边界，不是实现细节。</p>
+<h2 id="三层融合与-quote-隔离">5.5 三层融合与 quote 隔离</h2>
+<p>记忆分三层：事实层（可核验）、情绪层（主观感受）、关系层（谁和谁、承诺与边界）。三层共用图谱，但召回时按来源打标；语录（quote）单独隔离，不参与事实断言，避免把”她说过的一句气话”当成长期事实。该隔离与第
+13 章的一致性守护共用同一套来源标签。</p>
+<p>类型分层之外，记忆还有作用域：事实层按发送者归并，同一人跨群、跨私聊共享同一组事实；情绪层与图谱激活属于单一自我，只有与用户的一对一会话写入；会话短上下文按会话串（unified_msg_origin）分桶，不跨人拼接。类型隔离回答”这句话能不能当事实”，作用域隔离回答”这条事实属于谁”。两者共同保证：换一个会话，长期事实还能接上；换一个人，不会把别人的话当成自己的。</p>
+<h2 id="重要度自评让模型凭感受定轻重">5.6
+重要度自评：让模型凭感受定轻重</h2>
+<p>S 公式里最重要的因子是 imp，而 imp
+不能由代码里的关键词表打分——“八点离散考试”和”中午吃了碗面”在词频上几乎一样平，在关系里的重量差十倍。因此
+imp 交给固结阶段的一次 LLM 调用自评：</p>
+<p><em>imp = round(LLM(dialogue | prompt), 1)，imp∈[0.1, 1.0]
+（5-7）</em></p>
+<p>打分口径写死在提示词里，分四档：0.9–1.0
+定义关系、承诺、身份、极重情绪；0.6–0.8
+长期有效的偏好、习惯、目标、重要事实；0.3–0.5
+值得记但会过时的具体事；0.1–0.2
+一次性流水细节。模型同时输出事件摘要、情绪标签与事实三元组，一次调用产出全部固结结果，不额外增加轮次。</p>
+<p>工程上有一个必须显式化的坑：<strong>按 provider id
+指定模型却解析不到时，框架会静默回落到会话默认模型</strong>。这意味着”配了
+A 模型、实际跑 B 模型”在日志里完全看不出来，只能看到 imp
+长期都是同一个值。因此代码在启动自检里打印一行：</p>
+<pre><code>[memoryv2] 固结打分模型 aliyun_bailian/deepseek-v4.1-flash-1017：已注册</code></pre>
+<p>配了 id
+但未注册时，同一行会写”未注册→会回落会话默认”。这条日志是本节所有数字可信的前提。</p>
+<p>区分度用三段强度递增的对话实测（真提示词、真 provider）：日常闲聊
+imp=0.4、离散考试 imp=0.9、“你只是个记不住事的 AI”那类情绪痛
+imp=0.8，三段 JSON 全部解析成功。存量 452
+条事实按同一口径批量重评后，imp 从”85.5% 挤在
+0.2”变成九档分布（0.1×16、0.2×67、0.3×86、0.4×54、0.5×38、0.6×57、0.7×46、0.8×40、0.9×48），平均
+0.27→0.49。分桶衰减从此对存量与新数据同样生效。</p>
+<h2 id="时序注入三档时间线与相关性检索分块">5.7
+时序注入：三档时间线，与相关性检索分块</h2>
+<p>只靠语义相关度召回，日期这一维是取不到的：实测 33
+句日常问法里，与历史事件文本有字面重合的只有 6 句，含时间/回忆线索词的 5
+句；而”你还记得昨晚说的吗”这类句子里只有时间词、没有任何字面重合。纯语义通道天生召不回”11
+月 8 日考试”——这正是长期运行后注入里”只剩日记”的成因。</p>
+<p>因此注入拆成两个独立块：<strong>【你记得的旧事】</strong>
+按相关度排序，来自事实层与事件层检索，名额 fact_top_n +
+event_top_n；<strong>【这些天的片段】</strong>
+按日期排序，不看相关度，是”日子的底子”。后者按三档分配名额与字数：</p>
+<p>表 5-2 时间线三档（名额按最大余数法分配）</p>
+<table style="width:97%;">
+<colgroup>
+<col style="width: 20%" />
+<col style="width: 18%" />
+<col style="width: 14%" />
+<col style="width: 20%" />
+<col style="width: 22%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: right;"><strong>档</strong> *</th>
+<th style="text-align: left;">*天数上界** *</th>
+<th style="text-align: left;">*系数<strong> </strong></th>
+<th style="text-align: left;">单条字数** **8</th>
+<th style="text-align: center;">条时名额**</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">近三天</td>
+<td style="text-align: left;">3</td>
+<td style="text-align: left;">1.00</td>
+<td style="text-align: left;">36</td>
+<td style="text-align: center;">3</td>
+</tr>
+<tr>
+<td style="text-align: right;">近一周</td>
+<td style="text-align: left;">7</td>
+<td style="text-align: left;">0.85</td>
+<td style="text-align: left;">30</td>
+<td style="text-align: center;">3</td>
+</tr>
+<tr>
+<td style="text-align: right;">近半月</td>
+<td style="text-align: left;">15</td>
+<td style="text-align: left;">0.70</td>
+<td style="text-align: left;">24</td>
+<td style="text-align: center;">2</td>
+</tr>
+</tbody>
+</table>
+<p>越近的档系数越高、字数越宽、名额越多，因为”最近那几天”才是被问起时答得上来的。两块的预算互不侵占：相关块吃
+inject_char_budget，时序块单独有 timeline_char_budget（默认 340
+字）。跨块去重只在两条记忆的字面重合占比 ≥60% 时生效——早期用”≥3
+个二元组”的绝对阈值，会把”11 月 8
+日考试”这条误杀（它只跟事实撞两三个词）。实测时序块 239 字、单轮总注入约
+500 字，覆盖从 10 天扩到 15 天。</p>
+<h2 id="复习计数两道闸防永生记忆">5.8
+复习计数：两道闸，防”永生记忆”</h2>
+<p>N_recall 是 S
+里唯一能持续增长的因子，也是唯一可以被”刷”的因子：用户天天问一句”吃了吗”，系统天天回”吃了”，这条废话若每次都算复习，S
+会无限变大，记忆永不衰减。</p>
+<p>因此每次召回计分前过两道闸：</p>
+<p><em>ΔN = 1 iff overlap(recall, item) ≥ 2 且 now − last_recall_ts ≥
+24h （5-8）</em></p>
+<p>闸一要求字面重合至少 2
+个二元组——只语义相近、没有实体重合的顺嘴话不算复习；闸二要求距上次计分超过
+24 小时——同一轮里连问三次只算一次。实测：同一句”离散考得怎么样”连问 3
+次，recalls 只从 0 变 1；无重合的”哈哈哈”保持 0。这两道闸与 N_recall
+上限 12
+一起，把”复习效应”限制在”真的隔了一段时间还记得”这件事上，而不是”被反复提及”。</p>
+<h2 id="天体检日不是每天清扫">5.9 3/7/15 天体检日：不是每天清扫</h2>
+<p>有了 R 与 S，归档就不该每天跑一遍全库。实现里把 3/7/15
+天设成三个体检日，每天最多扫一次（<code>_last_sweep</code> 隔 86400
+秒才允许下一次），三个时点各自带判据：</p>
+<p><em>归档 iff age ≥ 15（硬淘汰）∨(7 ≤ age &lt; 8 ∧ R &lt; 0.30)∨(3 ≤
+age &lt; 4 ∧ R &lt; 0.35) （5-9）</em></p>
+<p>前提是”低价值”：事件降级且无摘要，或 imp ≤ 0.2 且激活 a &lt;
+0.15。归档不是删除——条目只从可注入池移到
+<code>event_archive.json</code>，原文一字不改，随时可以捞回来。</p>
+<p>这里有一个必须写明的实测结论：<strong>在温和档的分桶半衰期下，3 天与
+7 天两个窗口的 R 阈值几乎不可能被触发</strong>。事实桶 15
+天半衰期、imp=0.2 时 S=1.4，有效半衰期 21 天，3 天后 R≈0.91，远高于
+0.35。真正起作用的是 15 天硬淘汰。仿真里 400 条混合库推进 30 天，3
+天档与 7 天档命中均为 0，15 天档命中 192 条（图
+B-15）。这不是实现失效，而是”温和档”的必然结果：想靠 R 判据在 3
+天内清掉东西，只能把半衰期压到 3
+天量级，而那正是本文明确拒绝的短期工作记忆档位。</p>
+<h1 id="第6章-人格与自我调节">第6章 人格与自我调节</h1>
+<h2 id="大五人格作为慢变量">6.1 大五人格作为慢变量</h2>
+<p>ψ=(O,C,E,A,N)
+不是初始化常量，而是月级慢变量。它参与调制恐惧残留、主动频率与冲突后的回避倾向，但不被单轮反馈直接改写。人格只给出先验，后续由交互经验修正（见
+9.3）。</p>
+<h2 id="egoregulator越阈不等于发送">6.2
+EgoRegulator：越阈不等于发送</h2>
+<p>念头越阈只说明”冲动足够强”，不说明”现在该说”。EgoRegulator
+是确定性规则引擎，不调用 LLM，输出释放许可 r_release 与延迟
+r_delay：</p>
+<p><em>u &gt; FIRE_THRESHOLD 且 rrelease &gt; ρ ⇒ 发送 （6-1）</em></p>
+<p><em>FIRE_THRESHOLD ← FIRE_THRESHOLD + δ·rdelay （6-2）</em></p>
+<p>r_release 的规则是”高位放行、低位拦截、抑制条件居中”：u
+顶到上界视为真实表达意愿，优先放行；u
+低于半阈值视为气话，直接拦截；冲突、强负反馈、连续冷落落在中间，转入延迟或替代行为。延迟只抬门槛，不改变
+u 的累积速率。</p>
+<p>表 6-1 防御机制与作用对象</p>
+<table style="width:98%;">
+<colgroup>
+<col style="width: 18%" />
+<col style="width: 31%" />
+<col style="width: 18%" />
+<col style="width: 29%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: center;"><strong>机制</strong></th>
+<th style="text-align: left;"><strong>触发条件</strong></th>
+<th style="text-align: left;"><strong>作用对象</strong></th>
+<th style="text-align: left;"><strong>工程落点</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: center;">合理化</td>
+<td style="text-align: left;">反馈中性但念头徘徊在门槛附近</td>
+<td style="text-align: left;">表达策略</td>
+<td style="text-align: left;">改变叙事角度，不改原始情绪</td>
+</tr>
+<tr>
+<td style="text-align: center;">压抑</td>
+<td style="text-align: left;">连续冷落或强负反馈</td>
+<td style="text-align: left;">阈值、召回偏置</td>
+<td style="text-align: left;">阈值上升，念头积累变慢</td>
+</tr>
+<tr>
+<td style="text-align: center;">投射</td>
+<td style="text-align: left;">用户意图置信度低</td>
+<td style="text-align: left;">外部刺激权重</td>
+<td style="text-align: left;">下调 s_ext 置信度</td>
+</tr>
+<tr>
+<td style="text-align: center;">置换</td>
+<td style="text-align: left;">抑制期内越阈</td>
+<td style="text-align: left;">行为空间</td>
+<td style="text-align: left;">转入写日记/发动态/梦境固化</td>
+</tr>
+</tbody>
+</table>
+<h2 id="与-llm-审议层的边界">6.3 与 LLM 审议层的边界</h2>
+<p>EgoRegulator 在前，回答”能不能说、以什么策略说”；LLM
+在后，回答”具体怎么说”。LLM 的输入只有意图包，不进入 Ego 的输入；LLM
+的输出不回写 e(t) 与 a(v,t)，只能通过 r_feedback
+影响下一周期的慢参数。一句话：慢参数与释放条件归 Ego，语言表达归
+LLM，快状态两者都不能直接写。</p>
+<h1 id="第7章-念头阈值与由头锚点">第7章 念头、阈值与由头锚点</h1>
+<h2 id="念头累积">7.1 念头累积</h2>
+<p>念头不是定时器，是一个可积累的量。兴趣、时机与情绪状态共同决定累积速率：</p>
+<p><em>du/dt = K·(w1I + w2T + w3M + w4I·T·M) （7-1）</em></p>
+<p>I 为兴趣度（情绪与记忆共同决定），T 为时间适配度（作息模型），M
+为情绪状态因子。I、T、M 归一化到 [0,1]，Σw=1，K 为标定增益。典型工况下
+du/dt≈0.111/h，念头从 0 攒到 2.10 需要数小时，而不是每轮都触发。</p>
+<h2 id="有效阈值">7.2 有效阈值</h2>
+<p>有效阈值由自适应项、延迟项与上限共同决定：</p>
+<p><em>eff_thr = min(θadapt + δ·rdelay, URGE_CEILING-0.01)
+（7-2）</em></p>
+<p>连续未回复会抬高门槛（STREAK_GATE_STEP=0.2），刚聊过会清零；门槛有上限，避免”越冷落越不敢说”的死锁。该式与
+6.2 的释放许可串联，先算门槛，再算许可。</p>
+<h2 id="由头锚点与可识别性">7.3 由头锚点与可识别性</h2>
+<p>主动开口不能只有”我想你了”，必须带一个可识别由头：一条记忆节点、一个承诺、一次未完成的事、或一个任务卡。发送前做两道校验：锚点必须有节点绑定与内容摘要；空泛锚点不放行。这样”为什么是这件事”可以回答，也避免把随机生成当成意愿。</p>
+<h2 id="重复不等于退化">7.4 重复不等于退化</h2>
+<p>同一首歌可以在不同由头下被再次选择。判定重复的不是曲目，而是意愿锚点：如果这次是”想起你上次说喜欢”，下次是”今天放学路上突然想唱”，两次都成立。代码只记录”歌名｜这次想唱它的由头”，不强制换歌；把重复曲目当成
+bug，会把”她自己的意愿”误判成模板。</p>
+<h1 id="第8章-目标向量与策略选择">第8章 目标向量与策略选择</h1>
+<h2 id="四维目标">8.1 四维目标</h2>
+<p>g(t)=[g_relation,g_memory,g_self,g_avoid]
+分别对应关系、记忆、自我与回避。目标不是手写常量：长期得不到满足会衰减，反复冲突会上升。它比
+θ 慢、比 ψ 快，处在”周级”时间尺度。</p>
+<h2 id="策略打分">8.2 策略打分</h2>
+<p>动作选择不是端到端黑箱，而是可解释打分：</p>
+<p><em>π(e,a,ψ,u,g) = argmaxx [Q(e,a,x) + β·Σigi·φi(x)] （8-1）</em></p>
+<p>Q 是启发式打分，不是在线学习的价值函数：Q=Σ w_k f_k，f_k
+为情绪一致性、记忆相关度、目标贡献、工具可用性、重复惩罚五个手工特征，w_k
+为固定权重。本文不做贝尔曼备份或时序差分；在线学习只发生在 θ 与 ψ
+上。</p>
+<h2 id="目标演化">8.3 目标演化</h2>
+<p>g
+的更新由”当前策略能带来的目标收益”和”长期观测到的偏好满足度”共同驱动。正反馈让对应分量接近
+1，强负反馈接近
+0；某次交互只累加到它实际服务的那个分量，避免一次聊天同时抬高四个目标。</p>
+<h1 id="第9章-自适应演化与参数变更">第9章 自适应演化与参数变更</h1>
+<h2 id="慢参数在线学习">9.1 慢参数在线学习</h2>
+<p>θ 包含触发阈值、衰减率、边先验等。它按总损失的梯度更新：</p>
+<p><em>θt+1 ← θt - ηadapt·∂Ltotal/∂θ （9-1）</em></p>
+<p>L_total
+由漏出损失、情感连续性损失、记忆质量损失、工具成功率损失与用户反馈适配损失加权组成。用户反馈映射为
+[0,1] 的连续信号，而不是 0/1
+二值；工具成功率也用连续成功率。这样梯度合法，不会因为一次”已读不回”把参数打到极端。</p>
+<h2 id="人格漂移">9.2 人格漂移</h2>
+<p>ψ 的学习率远小于 θ，设计上只做月级漂移。L_ψ
+取统计偏离的平方和：主动频率对应 E，冲突率对应 A，恐惧残留对应
+N，任务完成率对应 C，新话题占比对应 O。实现层的统计窗口为 7 天（168
+h），样本不足 20 次交互的维度权重置 0，避免小样本把人格带偏。</p>
+<h2 id="三层慢演化">9.3 三层慢演化</h2>
+<p>演化分三层：L1 调行为参数（冷却、长度、语气），L2 调探索上限
+ε_max，L3 只写叙事观察（“最近更愿意主动唱歌”）。三层都只写
+behavior_evolution.json overlay，不直接改 behaviors.json；24
+小时评估一次，样本不足不动，回滚只需删除 overlay 并重启。</p>
+<p>表 9-1 当前运行参数、默认值与取值依据</p>
+<table style="width:98%;">
+<colgroup>
+<col style="width: 22%" />
+<col style="width: 20%" />
+<col style="width: 34%" />
+<col style="width: 20%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: center;"><strong>参数</strong></th>
+<th style="text-align: left;"><strong>默认值</strong></th>
+<th style="text-align: left;"><strong>取值依据</strong></th>
+<th style="text-align: left;"><strong>可调</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: center;">platform_id</td>
+<td style="text-align: left;">qq</td>
+<td style="text-align: left;">工程接口契约：平台实例名</td>
+<td style="text-align: left;">否</td>
+</tr>
+<tr>
+<td style="text-align: center;">fire_threshold</td>
+<td style="text-align: left;">2.10</td>
+<td style="text-align: left;">标定实验：念头累积仿真</td>
+<td style="text-align: left;">是</td>
+</tr>
+<tr>
+<td style="text-align: center;">urge_ceiling</td>
+<td style="text-align: left;">3.00</td>
+<td style="text-align: left;">工程安全边界：强度截断</td>
+<td style="text-align: left;">否</td>
+</tr>
+<tr>
+<td style="text-align: center;">ego_rho</td>
+<td style="text-align: left;">0.50</td>
+<td style="text-align: left;">经验值：高位放行/低位拦截</td>
+<td style="text-align: left;">是</td>
+</tr>
+<tr>
+<td style="text-align: center;">threshold_max</td>
+<td style="text-align: left;">3.50</td>
+<td style="text-align: left;">工程安全边界：防死锁上限</td>
+<td style="text-align: left;">是</td>
+</tr>
+<tr>
+<td style="text-align: center;">tick_seconds</td>
+<td style="text-align: left;">60</td>
+<td style="text-align: left;">工程时序：分钟级状态推进</td>
+<td style="text-align: left;">是</td>
+</tr>
+<tr>
+<td style="text-align: center;">watcher_interval</td>
+<td style="text-align: left;">20</td>
+<td style="text-align: left;">工程时序：20 秒轮询</td>
+<td style="text-align: left;">是</td>
+</tr>
+<tr>
+<td style="text-align: center;">action_cooldown</td>
+<td style="text-align: left;">1800</td>
+<td style="text-align: left;">经验值：防刷屏</td>
+<td style="text-align: left;">是</td>
+</tr>
+<tr>
+<td style="text-align: center;">evolution_enabled</td>
+<td style="text-align: left;">true</td>
+<td style="text-align: left;">功能开关：默认开启，可回滚</td>
+<td style="text-align: left;">是</td>
+</tr>
+<tr>
+<td style="text-align: center;">evolution_window</td>
+<td style="text-align: left;">7 天（168 h）</td>
+<td style="text-align: left;">工程时序：慢演化统计窗口</td>
+<td style="text-align: left;">是</td>
+</tr>
+<tr>
+<td style="text-align: center;">task_context</td>
+<td style="text-align: left;">16:00/18:00/8</td>
+<td style="text-align: left;">用户情境配置：下课/关门/步行</td>
+<td style="text-align: left;">是</td>
+</tr>
+</tbody>
+</table>
+<p>表中”标定实验”指第 15—16
+章的数值检查；“工程安全边界”是防止积分越界或阈值死锁的硬上限，不得为提高触发率随意放大；“经验值”可按用户作息调整。凡标”可调”的参数都由配置读取，修改后经一次
+tick 生效。</p>
+<h1 id="第10章-动作空间行为与工具">第10章 动作空间：行为与工具</h1>
+<h2 id="统一动作表">10.1 统一动作表</h2>
+<p>动作空间由两部分组成：12 条注册行为（由看门狗按状态与策略触发）与 51
+个 LLM 工具（由对话或行为执行器调用）。两者共用一张动作表，每条都有
+id、标签、前置条件、冷却与执行函数。当前总入口为 12+51=63。</p>
+<p>表 10-1 动作空间分层计数（合计 63）</p>
+<table style="width:98%;">
+<colgroup>
+<col style="width: 21%" />
+<col style="width: 21%" />
+<col style="width: 55%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: center;"><strong>分层</strong></th>
+<th style="text-align: left;"><strong>数量</strong></th>
+<th style="text-align: left;"><strong>代表入口</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: center;">条件触发行为</td>
+<td style="text-align: left;">12</td>
+<td
+style="text-align: left;">主动问候、关心、回忆、承诺跟进、唱歌、画画、说说、日记、梦境</td>
+</tr>
+<tr>
+<td style="text-align: center;">生活任务</td>
+<td style="text-align: left;">5</td>
+<td style="text-align: left;">task_list / task_confirm / task_done /
+task_ignore / task_set_context</td>
+</tr>
+<tr>
+<td style="text-align: center;">短信快递</td>
+<td style="text-align: left;">1</td>
+<td style="text-align: left;">get_recent_express</td>
+</tr>
+<tr>
+<td style="text-align: center;">路线出行</td>
+<td style="text-align: left;">1</td>
+<td style="text-align: left;">travel_plan</td>
+</tr>
+<tr>
+<td style="text-align: center;">商品检索</td>
+<td style="text-align: left;">1</td>
+<td style="text-align: left;">product_search</td>
+</tr>
+<tr>
+<td style="text-align: center;">QQ 社交</td>
+<td style="text-align: left;">8</td>
+<td style="text-align: left;">说说、评论、点赞、删除、转发、资料</td>
+</tr>
+<tr>
+<td style="text-align: center;">QQ 资料</td>
+<td style="text-align: left;">3</td>
+<td style="text-align: left;">改昵称、改签名、换头像</td>
+</tr>
+<tr>
+<td style="text-align: center;">转述投诉</td>
+<td style="text-align: left;">2</td>
+<td style="text-align: left;">告状、传话</td>
+</tr>
+<tr>
+<td style="text-align: center;">媒体生成</td>
+<td style="text-align: left;">7</td>
+<td style="text-align: left;">画图、唱歌、翻唱、语音、表情</td>
+</tr>
+<tr>
+<td style="text-align: center;">日记</td>
+<td style="text-align: left;">2</td>
+<td style="text-align: left;">写日记、读日记</td>
+</tr>
+<tr>
+<td style="text-align: center;">信息互动</td>
+<td style="text-align: left;">4</td>
+<td style="text-align: left;">天气梗、戳一戳、用户信息、插件列表</td>
+</tr>
+<tr>
+<td style="text-align: center;">记忆</td>
+<td style="text-align: left;">1</td>
+<td style="text-align: left;">shihai_recall</td>
+</tr>
+<tr>
+<td style="text-align: center;">调参诊断管理</td>
+<td style="text-align: left;">16</td>
+<td style="text-align: left;">状态、注入、调参、行为开关、手动触发</td>
+</tr>
+</tbody>
+</table>
+<p><img src="media/image4.png"
+style="width:5.98425in;height:1.82464in" /></p>
+<p>图 10-1 从状态到行为的可解释选择链</p>
+<h2 id="候选过滤与执行">10.2 候选过滤与执行</h2>
+<p>候选先过前置条件：需要画图能力才能选画画，需要 RVC 才能选翻唱，需要
+QQ 平台才能选说说。过滤后再打分，避免”选了但执行不了”。执行器返回
+ok/error、文本或媒体路径，并把这次行为写入
+fired.json；失败不回写情绪，只记一条警告。</p>
+<p>执行器还要处理”旧回复压新消息”：同一会话串的新请求到达时，取消该会话尚未完成的旧回复任务；取消以会话串为键，只作用于同一会话，不误伤其他会话。该规则是运行时时序约束，不改变
+z(t) 与行为选择。</p>
+<p>本文不使用”涌现行为”作为字段名。主动行为是可复核的条件触发：u(t) &gt;
+eff_thr，r_release &gt; ρ，候选 requires
+满足，冷却已过，且由头锚点通过校验；任一条件不成立就不触发。日志以
+behavior_id 与 trigger_trace
+逐项记录这些条件，避免把”看起来像自己想说”误写成”涌现”。</p>
+<h2 id="行为不是定时器">10.3 行为不是定时器</h2>
+<p>12 条行为没有”每天 9 点问候”这种
+cron；它们只在念头越阈、自我许可、候选可用三者同时成立时被选中。生活任务层是例外：快递提醒走确定性通道，不经过
+u(t) 阈值，因为”驿站 18:00 关门”是硬约束，不该被情绪概率拖延。</p>
+<h1 id="第11章-系统架构与实现">第11章 系统架构与实现</h1>
+<h2 id="分层架构">11.1 分层架构</h2>
+<p>系统分五层：感知入口、动力学内核、行为与任务、表达与平台、守护。感知层收
+QQ 消息、短信、课表/地图/天气；内核层持有
+z(t)；行为层做候选与执行；表达层只生成语言与媒体；守护层做来源、断言与时序校验。</p>
+<p><img src="media/image5.png"
+style="width:5.98425in;height:3.17648in" /></p>
+<p>图 11-1 识海系统分层架构</p>
+<h2 id="数据契约">11.2 数据契约</h2>
+<p>快状态写 mind_state.json，行为回执写 shihai_fired.json，图谱写
+shihai_graph.json，任务写 tasks.json / task_events.jsonl /
+task_context.json，短信原文写
+sms_records.json。每份文件都有单一写入者：内核写状态，行为层写回执，任务层写任务，短信插件写记录。跨层只读快照，不互相改文件。长期事实记忆写
+memory.json，以 users[sender] 归并；会话历史按 unified_msg_origin
+分桶，私聊一人一会话，群聊在 unique_session 下为”发送者_群号”。</p>
+<h2 id="会话隔离与记忆作用域">11.3 会话隔离与记忆作用域</h2>
+<p>会话隔离不是把系统拆成多个心智，而是给同一个自我划分三种作用域。会话层决定”这句话属于哪个对话”，记忆层决定”这条事实属于谁”，自我层决定”这套情绪与图谱是谁的”。三层各自有键，不能互相替代。</p>
+<p>表 11-1 会话、记忆与自我的作用域</p>
+<table style="width:98%;">
+<colgroup>
+<col style="width: 15%" />
+<col style="width: 17%" />
+<col style="width: 26%" />
+<col style="width: 38%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: center;"><strong>作用域</strong></th>
+<th style="text-align: left;"><strong>键</strong></th>
+<th style="text-align: left;"><strong>存什么</strong></th>
+<th style="text-align: left;"><strong>隔离规则</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: center;">会话上下文</td>
+<td style="text-align: left;">unified_msg_origin</td>
+<td style="text-align: left;">最近对话、摘要、会话状态</td>
+<td
+style="text-align: left;">私聊按人；群聊按”发送者_群号”；不跨会话拼接</td>
+</tr>
+<tr>
+<td style="text-align: center;">长期事实记忆</td>
+<td style="text-align: left;">sender</td>
+<td style="text-align: left;">事实、昵称、稳定偏好</td>
+<td style="text-align: left;">同一人跨群/私聊共享；不同人分开</td>
+</tr>
+<tr>
+<td style="text-align: center;">自我状态</td>
+<td style="text-align: left;">单例 z(t) 与图谱</td>
+<td style="text-align: left;">情绪场、图谱激活、念头、目标</td>
+<td style="text-align: left;">只有用户会话读写；非用户不接收
+z(t)、图谱激活与意图包</td>
+</tr>
+</tbody>
+</table>
+<p>这样处理之后，“她记得你”与”她不会把群友的话当成你的”可以同时成立。会话隔离由框架的
+unique_session 完成；记忆归并由长期记忆模块按 sender
+完成；自我边界由两个默认开启的门控完成：owner_only_perception
+拦住非用户消息写入图谱，intent_owner_only 拦住非用户会话接收 z(t)
+与意图包。三者都是访问控制，不是把心智复制多份。</p>
+<h2 id="与平台解耦">11.4 与平台解耦</h2>
+<p>平台会话串统一为
+qq:FriendMessage:&lt;owner&gt;，不再把协议端名字写进业务代码。发送通过
+ProactiveSender 走
+context.send_message，文本、图片、文件、语音各有独立出口；换平台只改适配器，不改动力学。</p>
+<h2 id="多模态感知闭环">11.5 多模态感知闭环</h2>
+<p>图片、语音、表情、戳一戳都先转成文本或标签，再进入感知层；媒体生成结果回到表达层，不直接写情绪。这样”看见一张图”可以影响心情，但不会让图片字节污染状态。</p>
+<h2 id="上下文闭合自述入史指代焦点与打断抢救">11.6
+上下文闭合：自述入史、指代焦点与打断抢救</h2>
+<p>长期记忆解决”她记得三个月前的事”，短上下文解决”她记得上一句自己在说什么”。后者在早期实现里有三处结构性断裂，且共同特征相同：<strong>发出去的东西说了，但历史里一个字都没有</strong>。</p>
+<p>实测口径取自一个真实会话（121 条消息）：assistant 带正文 45 条、只有
+think 块无正文 11 条、空 1 条、user 51 条、tool 13
+条。全库检索”线头”“完整一点”只命中 user 侧那条提问，assistant 侧那条 10
+秒语音的正文一条都不存在。因此”这句我不记得自己说过，你在哪儿看到的”不是语气问题，而是历史里真的没有这句；同一统计里那
+11 条 think-only
+还说明，丢的不只是语音——工具轮与流式轮的可见回复也在丢。</p>
+<h3 id="根因整段覆盖写与钩子时序">11.6.1 根因：整段覆盖写与钩子时序</h3>
+<p>框架侧有两条硬事实决定了补记必须挂在哪里。其一，管道在
+<code>_save_to_history</code> 里用
+<code>update_conversation(..., history=message_to_save)</code>
+<strong>整段覆盖</strong>本轮请求的
+messages，而不是增量追加；其二，respond 阶段的顺序是”先
+<code>event.send</code>，后
+<code>call_event_hook(OnAfterMessageSentEvent)</code>“。二者叠加的后果是：任何在<strong>发送阶段</strong>往历史里追加的行，都会被本轮这次覆盖写抹掉。补记只能发生在<strong>发送结束之后</strong>。</p>
+<p>打断逻辑相反，时机本来就是对的：同会话新消息到达时触发的
+<code>OnWaitingLLMRequestEvent</code> 在
+<code>session_lock_manager.acquire_lock</code>
+<strong>之前</strong>被调用，注册语义写明”仅通知、不阻塞”。整晚运行日志里”已取消上一条未完成的回复”出现
+0 条，说明多数上下文丢失并非 cancel
+造成，而是上面的落库缺陷，加上旧实现只补 user 侧、已生成的半截 assistant
+正文一句不留。</p>
+<h3 id="三处修复">11.6.2 三处修复</h3>
+<p><strong>（一）语音自述入史。</strong> 语音发送时消息链被替换为
+<code>Record</code>，chain
+里不再有文字组件，框架因此没有可存的正文本。修复把它拆成两步：发送前把正文暂存到事件上，发送成功后的
+<code>after_message_sent</code> 钩子再补一条 assistant
+轮，正文前缀标明它是语音：</p>
+<p><em>history ← history ∪ {（assistant，“（语音）” + text_tts) }，在
+send 之后调用 （11-1）</em></p>
+<p>补记必须去重：同一轮可能既走本地 TTS
+出口又走降级群语音出口，若不去重会连写两条。判重不按整句相等，而按四字片段重叠率：</p>
+<p><em>dup(a,b) = 1 iff |G₄(a) ∩ G₄(b)| / |G₄(a)| ≥ 0.6
+（11-2）</em></p>
+<p>其中 G₄(·) 为句中去掉句首语气标注与空白标点后的四字片段集合。阈值取
+0.6 而非 1.0，是因为 TTS
+出口略带改写（“发出去啦”一类回执），整句比对会漏判。</p>
+<p><strong>（二）指代焦点绑定。</strong>
+“给我姐姐说句生日快乐”，下一轮”今天她生日”，她反问”她是谁”。修复不改推断逻辑，只增加一个会话级的焦点槽：从关系称谓词表（姐姐/妹妹/哥哥/弟弟/妈妈/爸爸/室友/同学/老师/女朋友/男朋友/对象/同事/老板/学长/学姐）中取最近一次命中的实体，有效期
+6 小时：</p>
+<p><em>F_t = (entity, t_F)，valid iff now − t_F &lt; 6h
+（11-3）</em></p>
+<p>焦点必须<strong>落盘</strong>（<code>plugin_data/shihai/focus/[md5 前 16 位].json</code>）。当晚进程因看门狗重启
+5
+次，任何内存态焦点都会在重启处归零，而”她是谁”恰好问在重启窗口内——这正是它跨会话不成立的原因之一。注入侧只做一件事：当且仅当当前句出现”她/他/它”时，在意图包里追加一行
+<code>【当前焦点】「她」指最近提到的那位：姐姐……别反问"她是谁"</code>，约
+20 token；不出现代词就不加，避免每轮固定开销。</p>
+<p><strong>（三）半截回复抢救。</strong> 取消旧任务前先抢救，而不是先
+cancel：把旧回复已经生成的 Plain
+文本按”（说到一半被打断）“标签写入历史，再取消任务，最后才注入新请求。次序固定为
+merge → cancel →
+inject，任何一步失败都只记诊断日志、不阻断新回复。这样模型看到的不是”用户突然换话题”，而是”我刚说到一半被打断了”。</p>
+<p>三处补记只作用于用户会话键：读改写按 conversation_id
+定位、不新建会话，非用户会话不写，与 11.3 的会话隔离一致。</p>
+<h3 id="验证">11.6.3 验证</h3>
+<p>离线验证用真实类加 stub 的
+conversation_manager：喂”给我姐姐说句生日快乐”后焦点解析为”姐姐”，再喂”今天她生日”仍解析”姐姐”（说明焦点未代词覆盖）；同一句语音正文连写两次，第一次返回
+True、第二次被判重（去重生效）。上线验证看启动日志新增的一行：</p>
+<p><em>[识海行为] 上下文闭合已启用：语音自述入历史 / 指代焦点绑定 /
+半截回复抢救</em></p>
+<h2 id="任务层挂载点">11.7 任务层挂载点</h2>
+<p>任务层挂在行为看门狗的每轮开头，先摄入短信、发任务卡、推进到期提醒，再走原来的
+fire_pending
+逻辑。任务层异常被独立捕获，不拖垮行为层；行为层异常也不回滚任务状态。两者共享同一份
+state 快照，但写不同文件。</p>
+<h1 id="第12章-表达层意图包与人格边界">第12章
+表达层：意图包与人格边界</h1>
+<h2 id="意图包">12.1 意图包</h2>
+<p>意图包 I_t 是内核给 LLM
+的唯一输入：一条人设、一句当前意图、一个由头锚点、几条状态断言。它不包含完整情绪向量、不包含图谱全文、不包含任务库。LLM
+看到的越少，越不容易把”此刻”编成”一直”。</p>
+<h2 id="双信号源">12.2 双信号源</h2>
+<p>表达层有两个信号源：状态断言（“我现在有点不安”）与由头（“因为你上次说……”）。前者来自
+e(t) 与 ψ，后者来自 a(v,t)
+或任务卡。两路都必须在意图包里出现，缺一路就退回”普通聊天”，不冒充主动。</p>
+<h2 id="语录隔离与断言改写">12.3 语录隔离与断言改写</h2>
+<p>语录只用于风格参考，不用于事实断言。生成后做一次轻量改写：把”你上次说你要退学”改成”你上次提到过退学的念头”，把绝对判断改成带来源的观察。该改写不调用第二次大模型，用规则与模板完成，避免成本翻倍。</p>
+<h2 id="重复与人格一致">12.4 重复与人格一致</h2>
+<p>同一行为可以重复，但重复必须带新由头；同一人格不能因为一次负反馈就翻脸。表达层只调整语气与长度，不改人格基底；人格漂移由
+9.2 的慢变量负责。这样”她今天有点低落”与”她还是她”可以同时成立。</p>
+<h2 id="提示词瘦身">12.5 提示词瘦身</h2>
+<p>提示词只保留三块：人设一句、意图一句、边界一句。历史对话由会话层按需拼接，不把整本记忆塞进系统提示。提示词越短，状态断言越容易被看见，越不容易被长上下文淹没。</p>
+<h1 id="第13章-一致性守护">第13章 一致性守护</h1>
+<h2 id="四类故障">13.1 四类故障</h2>
+<p>长期运行最容易出四类故障：F1 时序错乱（把昨天的事说成今天）；F2
+记忆错配（把 A 的事安到 B）；F3 人格漂移（一轮对话换一个人）；F4
+行动失忆（做了却说没做）。四类都不是”模型不够聪明”，而是状态与表达之间缺少校验。</p>
+<h2 id="四不变量">13.2 四不变量</h2>
+<p>表 13-1 一致性守护的四不变量</p>
+<table style="width:98%;">
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 47%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: center;"><strong>不变量</strong></th>
+<th style="text-align: left;"><strong>约束</strong></th>
+<th style="text-align: left;"><strong>检查点</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: center;">I1 时序</td>
+<td
+style="text-align: left;">断言的时间不得早于来源时间，也不得晚于当前</td>
+<td style="text-align: left;">生成后、发送前</td>
+</tr>
+<tr>
+<td style="text-align: center;">I2 来源</td>
+<td style="text-align: left;">事实断言必须能指回节点或原文片段</td>
+<td style="text-align: left;">意图包组装时</td>
+</tr>
+<tr>
+<td style="text-align: center;">I3 表达归界</td>
+<td style="text-align: left;">人格断言不得越过设定边界</td>
+<td style="text-align: left;">persona 扫描</td>
+</tr>
+<tr>
+<td style="text-align: center;">I4 行动记忆</td>
+<td style="text-align: left;">说”做过”必须有 fired 回执</td>
+<td style="text-align: left;">发送前与发送后</td>
+</tr>
+</tbody>
+</table>
+<h2 id="五道防线">13.3 五道防线</h2>
+<p>第一道在来源侧：没有节点绑定的锚点不进入意图包。第二道在意图包：状态断言与由头必须成对。第三道在生成后：规则扫描绝对化表达与时间词。第四道在发送前：F4
+检查 fired
+回执。第五道在发送后：把这次行为写回回执，供下一轮校验。五道防线都不调用第二次大模型。</p>
+<h2 id="行动记忆">13.4 行动记忆</h2>
+<p>说”我给你唱过了”之前，先读 fired.json；没有对应 action 与
+ts，就不说”唱过”，改说”我想给你唱”。这条规则把”语言里的行动”与”真实执行”绑定，避免长期陪伴里最常见的”假装做过”。</p>
+<h2 id="上线验证">13.5 上线验证</h2>
+<p>上线后按四类故障各抽 20
+条日志人工核对；发现误报先看来源标签是否缺失，再看断言是否被改写。守护层只读
+z(t)，不写快状态；它的输出是”拦下/放行/改写”，不是”改情绪”。</p>
+<h1 id="第14章-生活任务层从短信到闭环">第14章
+生活任务层：从短信到闭环</h1>
+<h2 id="任务模型">14.1 任务模型</h2>
+<p>生活任务层把”短信里的快递”变成一张可追踪的任务卡：来源（短信原文、发送方、时间、命中字段）、任务内容（取件码、驿站、运单号）、情境（下课时间、关门时间、步行分钟）、状态、用户动作。任务卡不是聊天记录，而是状态机的一条记录。</p>
+<h2 id="确定性通道">14.2 确定性通道</h2>
+<p>快递提醒不走念头阈值
+u(t)。驿站关门是硬约束，情绪低时也不能拖；任务层每轮 tick
+直接检查到期任务，按优先级发提醒。</p>
+<p><img src="media/image6.png"
+style="width:5.98425in;height:1.97679in" /></p>
+<p>图 14-1 混合决策通路：确定性任务通道与动力学通道</p>
+<p>判据不是”重要/不重要”，而是事件是否带硬截止：关门、发车、预约到期等错过即不可逆的事件走确定性通道，不等待
+u(t)；没有硬截止、属于陪伴表达的事件走动力学通道。两条通道共享同一份
+z(t) 快照：任务事件写任务库与记忆图谱，但不改
+e(t)；动力学通道只把任务摘要当作弱情境刺激。这样既保证时效，也不让任务层退化为独立提醒器。</p>
+<p>优先级由紧急度、顺路度、任务价值与打扰成本共同决定：</p>
+<p><em>priority = w1·urgency + w2·route_fit + w3·value - w4·disruption
+（14-1）</em></p>
+<p>时间窗由下课、步行与关门时间共同决定：</p>
+<p><em>start = max(now, class_end + walk), end = station_close - buffer
+（14-2）</em></p>
+<p>若 end 已过，任务直接标
+expired，并给”今天来不及了，明天再取或回我延后”的替代；不生成一个必然迟到的提醒。</p>
+<h2 id="状态机">14.3 状态机</h2>
+<p>表 14-1 生活任务状态与迁移</p>
+<table style="width:98%;">
+<colgroup>
+<col style="width: 23%" />
+<col style="width: 28%" />
+<col style="width: 22%" />
+<col style="width: 23%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: center;"><strong>状态</strong></th>
+<th style="text-align: left;"><strong>含义</strong></th>
+<th style="text-align: left;"><strong>入口</strong></th>
+<th style="text-align: left;"><strong>出口</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: center;">pending_confirm</td>
+<td style="text-align: left;">刚发现，待发卡</td>
+<td style="text-align: left;">短信摄入</td>
+<td style="text-align: left;">awaiting_confirm / ignored</td>
+</tr>
+<tr>
+<td style="text-align: center;">awaiting_confirm</td>
+<td style="text-align: left;">已发卡，等用户确认</td>
+<td style="text-align: left;">任务卡</td>
+<td style="text-align: left;">planned / ignored / expired</td>
+</tr>
+<tr>
+<td style="text-align: center;">planned</td>
+<td style="text-align: left;">已排期，有窗口与理由</td>
+<td style="text-align: left;">确认</td>
+<td style="text-align: left;">reminded / deferred / expired</td>
+</tr>
+<tr>
+<td style="text-align: center;">reminded</td>
+<td style="text-align: left;">已提醒，等回执</td>
+<td style="text-align: left;">到期</td>
+<td style="text-align: left;">done / deferred / ignored</td>
+</tr>
+<tr>
+<td style="text-align: center;">done</td>
+<td style="text-align: left;">已取/已办</td>
+<td style="text-align: left;">回执</td>
+<td style="text-align: left;">archived</td>
+</tr>
+<tr>
+<td style="text-align: center;">archived</td>
+<td style="text-align: left;">归档，不再提醒</td>
+<td style="text-align: left;">自动</td>
+<td style="text-align: left;">—</td>
+</tr>
+<tr>
+<td style="text-align: center;">ignored</td>
+<td style="text-align: left;">忽略，不再提醒</td>
+<td style="text-align: left;">回执</td>
+<td style="text-align: left;">—</td>
+</tr>
+<tr>
+<td style="text-align: center;">deferred</td>
+<td style="text-align: left;">延后，窗口重算</td>
+<td style="text-align: left;">回执</td>
+<td style="text-align: left;">planned / expired</td>
+</tr>
+<tr>
+<td style="text-align: center;">expired</td>
+<td style="text-align: left;">窗口已过</td>
+<td style="text-align: left;">自动</td>
+<td style="text-align: left;">—</td>
+</tr>
+</tbody>
+</table>
+<p><img src="media/image7.png"
+style="width:5.98425in;height:3.02469in" /></p>
+<p>图 14-2 生活任务状态机</p>
+<h2 id="情境融合与为什么现在提醒">14.4 情境融合与”为什么现在提醒”</h2>
+<p>任务卡的理由要能说人话：16:00 下课、驿站 18:00 关门、步行 8
+分钟，16:10 出发最顺路。理由串由确定性模板生成，不让 LLM
+自由发挥”我觉得现在合适”。图 14-3 给出时间窗示例。</p>
+<p><img src="media/image8.png"
+style="width:5.98425in;height:2.29961in" /></p>
+<p>图 14-3 顺路取件的时间窗示例</p>
+<h2 id="代码落地与运行证据">14.5 代码落地与运行证据</h2>
+<p>实现落在 behavior/tasks.py：TaskStore 负责 tasks.json
+原子写与坏文件不覆盖，TaskEngine
+负责摄入、去重、排期、提醒、回执与归档。behavior/main.py 挂载 5 个 LLM
+工具（task_list / task_confirm / task_done / task_ignore /
+task_set_context），并在看门狗每轮开头先跑任务层。冒烟测试覆盖
+ingest、dedupe、plan、remind、archive 五个环节，输出
+task_id=tk_8049d7ac68、sent_count=2。</p>
+<p>本机运行记录：2026-11-09 22:53:27 的顺丰短信被摄入为任务
+tk_c78e0dc512，状态从 pending_confirm 迁到
+awaiting_confirm；task_events.jsonl 留有 discovered 与 transition
+两条事件。该记录证明”短信→任务卡”在真实 AstrBot
+进程里跑通，而不只是单元测试。</p>
+<h2 id="隐私与边界">14.6 隐私与边界</h2>
+<p>短信原文只存本机，默认保留 30 天 / 500
+条；任务库不含手机号、不把取件码发到群聊；任务卡只发给用户。手机端
+SmsForwarder 当前受校园网 AP
+隔离影响未打通，本文不把”手机自动转发”写成已交付；任务层本身已可在本机通过
+/短信测试或手写 JSON 验证。</p>
+<h1 id="第15章-仿真设置">第15章 仿真设置</h1>
+<h2 id="目标与原则">15.1 目标与原则</h2>
+<p>仿真的目标不是”证明系统像人”，而是检查数值自洽性：方程在给定步长下是否稳定、阈值是否饱和回落、极端输入是否越界、慢参数是否把快状态带飞。所有结论只在”本文参数与步长”内成立。</p>
+<p><img src="media/image9.png"
+style="width:5.98425in;height:1.92176in" /></p>
+<p>图 15-1 数值自洽性检查流程</p>
+<p>五个环节依次是：取参数、跑各模块、记录边界量、比对阈值、生成检查表。各模块共用同一组随机种子，便于横向比较；检查表只记录能由输出文件复核的量，不把主观感受写进结果。</p>
+<h2 id="积分方法与参数">15.2 积分方法与参数</h2>
+<p>表 15-1 各组检查的方程与积分设置</p>
+<table style="width:97%;">
+<colgroup>
+<col style="width: 32%" />
+<col style="width: 32%" />
+<col style="width: 32%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: center;"><strong>模块</strong></th>
+<th style="text-align: left;"><strong>方程</strong></th>
+<th style="text-align: left;"><strong>数值方法 / 步长</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: center;">情绪场</td>
+<td style="text-align: left;">式 4-1 六维 ODE</td>
+<td style="text-align: left;">RK4，0.05 h</td>
+</tr>
+<tr>
+<td style="text-align: center;">图谱扩散</td>
+<td style="text-align: left;">式 5-1、5-2</td>
+<td style="text-align: left;">精确指数 exp(−λ·Δt)，0.05 h</td>
+</tr>
+<tr>
+<td style="text-align: center;">Hebbian 边权</td>
+<td style="text-align: left;">式 5-6 + 两道门</td>
+<td style="text-align: left;">离散映射，0.05 h</td>
+</tr>
+<tr>
+<td style="text-align: center;">记忆保持率</td>
+<td style="text-align: left;">式 5-3~5-5</td>
+<td style="text-align: left;">逐时点解析求值（R/S/λ_eff）</td>
+</tr>
+<tr>
+<td style="text-align: center;">复习计分</td>
+<td style="text-align: left;">式 5-8</td>
+<td style="text-align: left;">按召回事件离散</td>
+</tr>
+<tr>
+<td style="text-align: center;">存量重评</td>
+<td style="text-align: left;">式 5-7（LLM 自评）</td>
+<td style="text-align: left;">批量 24 条/次，0 批失败</td>
+</tr>
+<tr>
+<td style="text-align: center;">体检日归档</td>
+<td style="text-align: left;">式 5-9</td>
+<td style="text-align: left;">每天最多一次（86400 s 闸）</td>
+</tr>
+<tr>
+<td style="text-align: center;">念头</td>
+<td style="text-align: left;">式 7-1 连续近似</td>
+<td style="text-align: left;">RK4，0.05 h</td>
+</tr>
+<tr>
+<td style="text-align: center;">长时稳定</td>
+<td style="text-align: left;">式 4-1 + 随机刺激</td>
+<td style="text-align: left;">RK4，0.25 h，200 h</td>
+</tr>
+<tr>
+<td style="text-align: center;">阈值自适应</td>
+<td style="text-align: left;">式 7-2 反馈规则</td>
+<td style="text-align: left;">按轮次离散</td>
+</tr>
+<tr>
+<td style="text-align: center;">极端场景</td>
+<td style="text-align: left;">式 4-1 高强度输入</td>
+<td style="text-align: left;">RK4，0.05 h，60 h</td>
+</tr>
+<tr>
+<td style="text-align: center;">自我调节</td>
+<td style="text-align: left;">式 6-1、6-2</td>
+<td style="text-align: left;">逐步更新，0.02 h，45 h</td>
+</tr>
+</tbody>
+</table>
+<h2 id="复现口径">15.3 复现口径</h2>
+<p>绘图统一 200 dpi，正文按 13.4 cm 宽置入；随机过程固定种子（默认
+20261110，另跑 20261111 做种子回归）。仿真脚本随附于仓库
+<code>sim/shihai_sim.py</code>（单文件约 1200 行，含 14
+组检查与决策流故障率标定），运行
+<code>python sim/shihai_sim.py [--seed N]</code> 即生成 15 张检查图（200
+dpi）与 <code>metrics.json</code>；复现结果逐项见附录 B。</p>
+<h1 id="第16章-数值自洽性结果">第16章 数值自洽性结果</h1>
+<h2 id="十四组检查">16.1 十四组检查</h2>
+<p>表 16-1 数值检查与观察</p>
+<table style="width:97%;">
+<colgroup>
+<col style="width: 31%" />
+<col style="width: 32%" />
+<col style="width: 32%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: center;"><strong>检查</strong></th>
+<th style="text-align: left;"><strong>观察</strong></th>
+<th style="text-align: left;"><strong>结论</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: center;">情绪场弛豫</td>
+<td style="text-align: left;">无输入时按 τ 指数回落</td>
+<td style="text-align: left;">无振荡</td>
+</tr>
+<tr>
+<td style="text-align: center;">情绪—记忆耦合</td>
+<td style="text-align: left;">高情感节点召回后 e 偏移</td>
+<td style="text-align: left;">耦合方向正确</td>
+</tr>
+<tr>
+<td style="text-align: center;">Hebbian</td>
+<td style="text-align: left;">共激活边权单调增强</td>
+<td style="text-align: left;">无负边</td>
+</tr>
+<tr>
+<td style="text-align: center;">念头累积</td>
+<td style="text-align: left;">典型工况 du/dt≈0.111/h</td>
+<td style="text-align: left;">量纲一致</td>
+</tr>
+<tr>
+<td style="text-align: center;">200 h 长时</td>
+<td style="text-align: left;">状态有界，无发散</td>
+<td style="text-align: left;">数值稳定</td>
+</tr>
+<tr>
+<td style="text-align: center;">±20% 参数</td>
+<td style="text-align: left;">阈值与衰减不越界</td>
+<td style="text-align: left;">鲁棒</td>
+</tr>
+<tr>
+<td style="text-align: center;">差异化衰减</td>
+<td style="text-align: left;">三桶半衰期 21/60/180 天</td>
+<td style="text-align: left;">分桶生效</td>
+</tr>
+<tr>
+<td style="text-align: center;">N 维恐惧消退</td>
+<td style="text-align: left;">N 高时 fear 半衰更长</td>
+<td style="text-align: left;">人格调制生效</td>
+</tr>
+<tr>
+<td style="text-align: center;">阈值饱和</td>
+<td style="text-align: left;">到上限后回落</td>
+<td style="text-align: left;">无死锁</td>
+</tr>
+<tr>
+<td style="text-align: center;">极端边界</td>
+<td style="text-align: left;">饱和输入不越 [0,1]</td>
+<td style="text-align: left;">有界</td>
+</tr>
+<tr>
+<td style="text-align: center;">自我调节</td>
+<td style="text-align: left;">抑制档不放行，高位放行</td>
+<td style="text-align: left;">规则一致</td>
+</tr>
+<tr>
+<td style="text-align: center;">Hebbian 两道门</td>
+<td style="text-align: left;">跨主体 0 边、邻近对 γ·0.2</td>
+<td style="text-align: left;">防错构生效</td>
+</tr>
+<tr>
+<td style="text-align: center;">复习防作弊</td>
+<td style="text-align: left;">连问 5 次只计 1 次</td>
+<td style="text-align: left;">防刷分生效</td>
+</tr>
+<tr>
+<td style="text-align: center;">体检日归档</td>
+<td style="text-align: left;">命中集中在 15 天硬淘汰</td>
+<td style="text-align: left;">只移不删</td>
+</tr>
+</tbody>
+</table>
+<p><img src="media/fig_12_fault_rate.png" style="width:5.2in" /></p>
+<p>图 16-1 离线仿真综合故障率对照：基线 1.540 → 五道防线
+0.065（行为类实测 0.000 + 模型外残差 0.065），降幅 95.8%</p>
+<h2 id="关键数字">16.2 关键数字</h2>
+<p>综合故障率从 1.540 降到 0.065，降幅 95.8%；其中守护态行为类故障实测为
+0（f1 越界、f2 重复连发、f3 阈值死锁、f5 安静扰民均为 0，f4 强负反馈顶撞
+0 次），0.065 全部来自 §13.1 标定的模型外残差（LLM 表达抖动、由头质量等
+ODE 模型之外的来源，单独列示不与行为类混计）。15 张仿真图、8 组
+单元检查、6 组场景检查（合计 14 组）、13 模块静态编译通过；换种子
+20261111
+回归，确定性检查数值逐位一致，随机流检查结论不变。上述数字来自本文仿真与本地代码检查（<code>metrics.json</code>
+逐项可复核，见附录 B），不是线上用户实验。</p>
+<h2 id="解释边界">16.3 解释边界</h2>
+<p>故障率下降说明”加入守护与任务层后，已知故障模式被拦下”，不说明”系统更像人”。仿真不能替代真实用户研究；本文把外部效度留到第
+18—19 章，用运行日志与失败案例补充。若只复核 1.540→0.065 这一个数：按表
+15-1 的积分设置与 §16.1 的检查顺序重跑
+<code>sim/shihai_sim.py</code>，读取输出 <code>metrics.json</code> 的
+<code>fault_rate</code> 字段 （<code>behavioral_fault_rate</code> /
+<code>model_residual</code> / <code>total_fault_rate</code>
+三分量）；标定口径见附录 B.1。</p>
+<h1 id="第17章-长时稳定与鲁棒性">第17章 长时稳定与鲁棒性</h1>
+<h2 id="小时长时稳定">17.1 200 小时长时稳定</h2>
+<p>以 0.25 h 步长跑 200
+h，情绪、激活与念头均在界内；没有出现”越跑越亢奋”或”阈值漂到不可达”。长时稳定的关键是三个上限：e
+的 [0,1]、u 的 3.0、阈值的 3.5；三者共同防止正反馈失控。</p>
+<h2 id="参数扰动">17.2 参数扰动</h2>
+<p>对 κ、η、λ、γ 各做 ±20%
+扰动，检查是否出现振荡、越界或阈值死锁。结果显示衰减率与阈值仍在设计区间内；最敏感的是
+κ（外部刺激增益），它决定情绪峰值，但不改变收敛性。</p>
+<h2 id="差异化衰减">17.3 差异化衰减</h2>
+<p>情绪节点比事实节点保留更久，高亮节点最久；这符合”记得当时的感受，忘记具体日期”的直觉。在图谱层面，该现象来自式
+5-2
+的情绪调制，不是额外规则。在记忆库层面，差异来自三处可解释的量：分桶半衰期（表
+5-1）、imp 自评（式 5-7）、复习次数（式 5-8）。</p>
+<p>图 B-7 给出两组读数。三桶在各自”典型重要度”下的有效半衰期为：事实桶
+imp=0.2 时 21.0 天，事件桶 imp=0.5 时 60.0 天，核心桶 imp=0.5 时 180.0
+天。同一事实桶内，imp 从 0.2 提到 0.9 只把有效半衰期从 21 天拉到 42
+天（2.0
+倍）——重要度是<strong>两倍量级</strong>的调节，不是量变到质变的开关；真正能把短命记忆拉成长寿记忆的是复习：N_recall
+从 0 加到 12，事实桶有效半衰期放大约 19
+倍。这解释了真实运行中的两条经验：一是”考试”这类高 imp
+事实能撑过两周，二是”被反复想起的话”能活过一个月以上，而单靠”当时很重要”撑不了太久。</p>
+<p>右图同时暴露一个设计取舍：S 里 imp 的系数 β=2.0 只给 2
+倍杠杆，而人类记忆里重要度的杠杆通常被估得更高。原因是要避免 imp=1.0
+的条目变成永不衰减的钉子户——在长期陪伴场景下，永久记忆会让注入池越来越挤，最终回到”什么都记得、什么都想不起来”的老问题。</p>
+<h2 id="极端与饱和">17.4 极端与饱和</h2>
+<p>高强度连续输入下，e 饱和在 1.0，u 饱和在
+3.0；饱和后不会继续积分到无穷，也不会把阈值顶穿。高位放行分支在 u≥3.0
+时优先释放，避免”顶到天花板还被抑制”的死锁。</p>
+<h2 id="本章结论">17.5 本章结论</h2>
+<p>在本文参数与步长内，系统是数值有界、可回落的；这为第 18
+章的真实运行提供了最低限度的稳定性保证。超出参数范围的行为不作承诺。</p>
+<h1 id="第18章-实现与真实场景验证">第18章 实现与真实场景验证</h1>
+<h2 id="代码与运行事实">18.1 代码与运行事实</h2>
+<p>表 18-1 本机实现与验证</p>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>项目</th>
+<th>事实</th>
+<th>验证方式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>运行框架</td>
+<td>AstrBot v4.14.6，平台实例 qq</td>
+<td>启动日志</td>
+</tr>
+<tr>
+<td>行为注册</td>
+<td>12 条 behaviors.json</td>
+<td>加载日志</td>
+</tr>
+<tr>
+<td>LLM 工具</td>
+<td>51 个 <span class="citation"
+data-cites="filter.llm_tool">@filter.llm_tool</span></td>
+<td>工具注册日志</td>
+</tr>
+<tr>
+<td>生活任务</td>
+<td>TaskStore + TaskEngine，5 个工具</td>
+<td>py_compile + 冒烟测试</td>
+</tr>
+<tr>
+<td>任务层启动</td>
+<td>看门狗每轮先 tick</td>
+<td>日志：生活任务层已启动</td>
+</tr>
+<tr>
+<td>短信服务</td>
+<td>0.0.0.0:6187/sms</td>
+<td>启动日志</td>
+</tr>
+<tr>
+<td>任务落盘</td>
+<td>tasks.json / task_events.jsonl</td>
+<td>真实短信摄入记录</td>
+</tr>
+<tr>
+<td>会话与记忆</td>
+<td>unique_session=true；memory 以 sender 归并</td>
+<td>配置回读 + 代码检查</td>
+</tr>
+<tr>
+<td>旧回复取消</td>
+<td>同一会话串新消息取消旧任务</td>
+<td>钩子注册日志 + 取消实验</td>
+</tr>
+<tr>
+<td>上下文闭合</td>
+<td>语音自述入史 / 指代焦点落盘 / 半截回复抢救</td>
+<td>py_compile + 离线断言（真类 + stub）</td>
+</tr>
+<tr>
+<td>上下文闭合启动</td>
+<td>启动日志含“上下文闭合已启用：语音自述入历史 / 指代焦点绑定 /
+半截回复抢救”</td>
+<td>boot 日志 + 钩子注册</td>
+</tr>
+<tr>
+<td>静态检查</td>
+<td>13 模块编译通过</td>
+<td>py_compile</td>
+</tr>
+</tbody>
+</table>
+<h2 id="任务链路冒烟">18.2 任务链路冒烟</h2>
+<p>测试用临时目录与伪造短信记录，按五个环节断言：短信→唯一任务；重复短信不建第二条；确认后状态
+planned 且理由含”16:00 下课 / 步行 8 分钟”；16:10 tick
+触发提醒且首字命中当前情绪语气；已取后归档，17:00
+不再提醒。全部通过。</p>
+<h2 id="真实进程">18.3 真实进程</h2>
+<p>重启后日志确认”生活任务层已启动”，5 个 task_*
+工具注册成功，短信服务与 qq
+适配器均载入；没有任务层异常。同一轮重启还确认”新消息打断旧回复钩子已注册：True”，86
+个 Handler 归位；配置回读为
+unique_session=true、max_context_length=60、llm_compress、keep_recent=6。随后真实短信被摄入为
+tk_c78e0dc512，证明任务层不是只在测试里成立。</p>
+<p>上下文闭合上线的那次重启同样留了证据：新进程启动于 2026-11-10
+23:25:55（PID 47004），WebUI 端口 6185 与 OneBot v11 端口 6199 均进入
+LISTEN，适配器日志显示”aiocqhttp(OneBot v11)
+适配器已连接”，启动日志多出一行”上下文闭合已启用：语音自述入历史 /
+指代焦点绑定 / 半截回复抢救”。同一夜此前的进程在 22:19:09
+被停掉，说明这套改动是在”杀旧进程→重跑记忆降级标记→再启动”的顺序下完成的，而不是热加载撞运气。</p>
+<h2 id="手机端缺口">18.4 手机端缺口</h2>
+<p>手机 SmsForwarder 未打通：校园网 DLUT-EDA 存在 AP 隔离，同网段邻居
+ping 不通，网关可达；本机自测 6187 返回 pong。改 App
+配置或改服务端代码都无效，需换手机热点/USB
+共享或使用内网穿透。本文如实标注”手机自动转发未完成”，不把本机自测当成端到端。</p>
+<h2 id="失败案例">18.5 失败案例</h2>
+<p>另一类失败是”表达跑在行动前面”：LLM 说”我给你唱过了”，但 fired.json
+没有对应记录。第 13 章的 F4
+防线就是为这类案例加的。还有”任务卡发不出去但状态已迁移”：现在先发送成功再迁移，失败保留
+pending_confirm，下一轮补发。</p>
+<p>第三类失败最容易被误判成”模型不够聪明”：她说了一句语音，追问那句，她答”这句我不记得自己说过，你在哪儿看到的”。实测表明历史里根本没有这句——语音把消息链换成
+Record，正文随之消失，而落库又在发送阶段被整段覆盖写掉。同类症状还有”今天她生日”被反问”她是谁”：上一轮的”给我姐姐说句生日快乐”没有留下可绑定的焦点实体。两者都已按
+11.6
+修复：补记改挂发送结束后的钩子、焦点实体落盘、打断前先抢救半截回复。</p>
+<h1 id="第19章-讨论">第19章 讨论</h1>
+<h2 id="为什么要把动机与语言分开">19.1 为什么要把动机与语言分开</h2>
+<p>把动机交给
+LLM，短期看省事，长期看不可控：同一个提示词在不同上下文里会给出不同”想不想说”，而且无法解释。把动机做成状态机后，系统可以回答”为什么现在”“为什么是这件事”“为什么不是下一次”；语言只负责把答案说得好听。这不是否定大模型，而是给它一个可读的边界。</p>
+<h2 id="限制">19.2 限制</h2>
+<p>单用户、单平台、单机；已实现单用户范围内的会话隔离与按人记忆，但尚未实现多用户各自独立的心智实例、多平台实例、手机独立端与真实用户实验。仿真只覆盖数值自洽性，不覆盖社会效度。任务层的”顺路”目前用固定步行时间与关门时间，未接入真实地图路况；课表也是配置项，不是自动同步。</p>
+<h2 id="伦理与隐私">19.3 伦理与隐私</h2>
+<p>所有主动行为都可暂停、可解释、可回滚；任务库只存本机，短信原文默认 30
+天 / 500
+条；不把取件码发群聊，不把手机号写进任务卡。系统不宣称意识，不制造”离不开”的依赖；提醒以”减少操作”为目标，不以增加互动时长为目标。</p>
+<h2 id="后续工作">19.4 后续工作</h2>
+<p>下一步做三件事：手机任务卡与 PC
+推理的跨端确认；周末短途旅行作为第二场景；把仿真脚本整理进仓库并补
+CI。再往后是多用户独立心智、真实地图路况与更细的提醒边界。</p>
+<h1 id="第20章-结论">第20章 结论</h1>
+<h2 id="总结">20.1 总结</h2>
+<p>识海把长期陪伴 AI
+拆成三层：动力学内核负责”什么时候、为什么”，表达层负责”怎么说”，任务层负责”事情办到哪一步”。六分量状态、五条耦合回路、越阈且许可的释放规则、12
+行为 + 51
+工具的调度，构成一条可解释的闭环。生活任务层把短信快递变成任务卡，用确定性通道排期、提醒、回执、归档，不与情绪阈值抢触发。会话层把短上下文按人分开、长期事实按人归并，内核仍保持单一自我；这使”她记得你”与”她不会把别人的话当成你的”同时成立。短上下文的闭合再做在三处容易断裂的地方——语音自述在发送结束后补记入史、指代焦点实体落盘跨重启、打断前先抢救半截回复——把”上一句是她自己说的”也变成可查的历史。</p>
+<h2 id="贡献回顾">20.2 贡献回顾</h2>
+<p>本文的贡献不是”让 AI
+更像人”，而是让”她为什么此刻主动”变成一个可以查状态、查来源、查回执的问题。对竞赛作品而言，这意味着系统级体验可以被评审复现：给一条短信，能看到任务卡；给一个念头，能看到由头；给一次主动，能看到回执；给一个群友发消息，不会污染用户的图谱；换一个会话，长期事实仍能接上。</p>
+<h2 id="展望">20.3 展望</h2>
+<p>当手机端、地图与日历真正接进来，任务层可以从”快递”扩展到”聚会、缴费、归还、预约”；当仿真脚本与真实用户研究补齐，本文的数值结论才能从”自洽”走到”有效”。在那之前，本文只主张一件事：把动机与语言分开，是把陪伴
+AI 做稳的第一步。</p>
+<h1 id="参考文献">参考文献</h1>
+<p>[1] A-MEM: Agentic Memory for LLM Agents. arXiv preprint, 2025.</p>
+<p>[2] Oblivion: Self-Adaptive Agentic Memory Control. arXiv preprint,
+2025.</p>
+<p>[3] FadeMem: Biologically-Inspired Forgetting for Efficient Agent
+Memory. arXiv preprint, 2025.</p>
+<p>[4] From Recall to Forgetting: Benchmarking Long-Term Memory. arXiv
+preprint, 2025.</p>
+<p>[5] HippoRAG: Neurobiologically Inspired Long-Term Memory for LLMs.
+arXiv:2405.14879, 2024.</p>
+<p>[6] Inside Out: Emotional Multiagent Multimodal Dialogue Systems.
+IJCAI Demo, 2024.</p>
+<p>[7] Self-Emotion Blended Dialogue Generation. arXiv, 2024.</p>
+<p>[8] NEMO: A Neural, Emotional Architecture for Human-AI Teaming.
+CEUR-WS, 2024.</p>
+<p>[9] Retroformer: Retrospective LLM Agents with Policy Gradient. ICLR
+Spotlight, 2024.</p>
+<p>[10] Agent-Pro: Learning to Evolve via Policy-Level Reflection. ACL,
+2024.</p>
+<p>[11] Promptbreeder: Self-Referential Self-Improvement via Prompt
+Evolution. ICML, 2024.</p>
+<p>[12] Bowlby J. Attachment and Loss. Basic Books, 1969.</p>
+<p>[13] Festinger L. Cognitive Dissonance. Stanford UP, 1957.</p>
+<p>[14] Bandura A. Self-Efficacy. Psychological Review, 1977.</p>
+<p>[15] 仓库：github.com/Zjx20252082383/astrbot-deepseek-template</p>
+<h1 id="附录-a-仿真设置与复现说明">附录 A 仿真设置与复现说明</h1>
+<p>本附录给出第 15—17 章数值检查的复现口径。状态方程、积分方法与步长见表
+15-1；绘图统一 200 dpi，正文按 13.4 cm 宽置入；随机过程固定种子。</p>
+<p>本文仿真脚本已随附于仓库
+<code>sim/shihai_sim.py</code>：单文件实现，仅依赖
+numpy/matplotlib，内含常量区（与正文方程逐一对应）、RK4
+与投影钳位积分器、 MindSim
+决策流仿真器（消息泊松流、图谱扩散、反馈回路、五道防线、故障计数）、
+C01–C15 十四组检查与 <code>metrics.json</code> 输出。默认种子 20261110，
+<code>--seed 20261111</code> 为种子回归。复现结果逐项见附录 B。</p>
+<p>复现边界：仿真只验证数值自洽性，不验证外部效度；所有结论限定在本文参数与步长内。真实场景验证见第
+18 章，以本机 AstrBot 日志与任务状态文件为准。</p>
+<h1 id="附录-b-复现结果与实现索引">附录 B 复现结果与实现索引</h1>
+<h2 id="b.1-运行结果摘要">B.1 运行结果摘要</h2>
+<p><code>python sim/shihai_sim.py</code>（种子 20261110）的
+<code>metrics.json</code> 逐项结果： 14/14 检查通过、13/13
+模块静态编译通过。关键观察值：</p>
+<table style="width:97%;">
+<colgroup>
+<col style="width: 14%" />
+<col style="width: 55%" />
+<col style="width: 27%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: left;"><strong>检查</strong></th>
+<th style="text-align: left;"><strong>观察值（种子 20261110）</strong>
+**</th>
+<th style="text-align: left;">通过**</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">C01 弛豫</td>
+<td style="text-align: left;">与解析解最大相对误差 1.4e-4，无振荡</td>
+<td style="text-align: left;">PASS</td>
+</tr>
+<tr>
+<td style="text-align: left;">C02 耦合</td>
+<td style="text-align: left;">高情感召回使 e 偏移 +0.218，λ 单调降</td>
+<td style="text-align: left;">PASS</td>
+</tr>
+<tr>
+<td style="text-align: left;">C03 边权</td>
+<td style="text-align: left;">40 轮共激活收敛于 w_max=2.5，无负边</td>
+<td style="text-align: left;">PASS</td>
+</tr>
+<tr>
+<td style="text-align: left;">C04 念头</td>
+<td style="text-align: left;">du/dt=0.1109 vs 论文 0.111（误差
+0.1%）</td>
+<td style="text-align: left;">PASS</td>
+</tr>
+<tr>
+<td style="text-align: left;">C05 长时</td>
+<td style="text-align: left;">200h max e=0.477 / max u=2.997，16
+开口</td>
+<td style="text-align: left;">PASS</td>
+</tr>
+<tr>
+<td style="text-align: left;">C06 扰动</td>
+<td style="text-align: left;">κ 敏感度 0.18，其余 &lt;0.01，无越界</td>
+<td style="text-align: left;">PASS</td>
+</tr>
+<tr>
+<td style="text-align: left;">C07 衰减</td>
+<td style="text-align: left;">有效半衰期 21.0/42.0/60.0/180.0
+天四档</td>
+<td style="text-align: left;">PASS</td>
+</tr>
+<tr>
+<td style="text-align: left;">C07 imp</td>
+<td style="text-align: left;">imp=0.9 使事实半衰期延长 2.0 倍，N=12
+时</td>
+<td style="text-align: left;">19 倍 PASS</td>
+</tr>
+<tr>
+<td style="text-align: left;">C08 恐惧</td>
+<td style="text-align: left;">N=0.8 半衰期 ×1.79，RK4 误差 1.7%</td>
+<td style="text-align: left;">PASS</td>
+</tr>
+<tr>
+<td style="text-align: left;">C09 饱和</td>
+<td style="text-align: left;">gate 顶满 1.4，高位放行 2 次+常规 2
+次</td>
+<td style="text-align: left;">PASS</td>
+</tr>
+<tr>
+<td style="text-align: left;">C10 边界</td>
+<td style="text-align: left;">e 饱和 1.0、u 饱和 3.0，均钳位</td>
+<td style="text-align: left;">PASS</td>
+</tr>
+<tr>
+<td style="text-align: left;">C11 自调</td>
+<td style="text-align: left;">45h 5 次开口、抑制期违规 0、替代 574
+次</td>
+<td style="text-align: left;">PASS</td>
+</tr>
+<tr>
+<td style="text-align: left;">C13 门</td>
+<td style="text-align: left;">4000 抽样跨主体 0 边、邻近 Δw=0.012</td>
+<td style="text-align: left;">PASS</td>
+</tr>
+<tr>
+<td style="text-align: left;">C14 复习</td>
+<td style="text-align: left;">同轮 5 次计 1、隔天 6 次计 6</td>
+<td style="text-align: left;">PASS</td>
+</tr>
+<tr>
+<td style="text-align: left;">C15 体检</td>
+<td style="text-align: left;">30 天累计归档 0/85/156/192/192，在线
+208</td>
+<td style="text-align: left;">PASS</td>
+</tr>
+</tbody>
+</table>
+<p>综合故障率分解（§16.2 口径）：总量 = 行为类实测 + 模型外残差。基线
+1.540（K·Σw·f，K=7700 把基线标定到论文口径，基线计数
+f4=7、f5=3）；守护态 行为类实测 0.000（五类计数全 0，14
+次开口全部合规）；模型外残差 0.065 （§13.1 线上标定：LLM
+表达抖动、由头质量等 ODE 模型之外的来源）。总量 0.065，降幅 95.8%。</p>
+<p>种子回归（–seed
+20261111）：确定性检查（C01/C03/C04/C07/C08/C10/C13/C14）数值逐
+位一致；随机流检查仅有微小波动（C05 max e 0.477→0.487、开口 16→15、基线
+计数 f4 7→4 / f5 3→1，K 重标定后基线仍归一到 1.540）；守护态行为类计数仍
+全 0，总量与降幅不变。结论对种子不敏感。</p>
+<h2 id="b.2-十五张检查图">B.2 十五张检查图</h2>
+<p>以下 15 张图由 <code>sim/shihai_sim.py</code> 生成（200 dpi，存于
+<code>sim/out/</code>），与 §16.1 表 16-1 一一对应；图 16-1 即图
+B-12。</p>
+<p><img src="media/fig_01_relaxation.png" style="width:4.8in" /></p>
+<p>图 B-1 C01 情绪场弛豫：单维激励 vs 解析解（式 4-1）</p>
+<p><img src="media/fig_02_emotion_memory_coupling.png"
+style="width:4.8in" /></p>
+<p>图 B-2 C02 情绪-记忆耦合：召回抬升 e、λ 被压低（式 5-2）</p>
+<p><img src="media/fig_03_hebbian.png" style="width:4.8in" /></p>
+<p>图 B-3 C03 Hebbian 边权单调收敛于 w_max=2.5（式 5-6）</p>
+<p><img src="media/fig_04_urge_accumulation.png"
+style="width:4.8in" /></p>
+<p>图 B-4 C04 念头线性累积，典型工况 du/dt≈0.111/h（式 7-1）</p>
+<p><img src="media/fig_05_long_run_200h.png" style="width:4.8in" /></p>
+<p>图 B-5 C05 200h 长时稳定：e/u/θ 全程有界</p>
+<p><img src="media/fig_06_param_perturbation.png"
+style="width:4.8in" /></p>
+<p>图 B-6 C06 参数 ±20% 扰动：κ 最敏感但不失稳</p>
+<p><img src="media/fig_07_differentiated_decay.png"
+style="width:4.8in" /></p>
+<p>图 B-7 C07 差异化衰减：三桶有效半衰期 21/42/60/180 天，imp 给 2
+倍杠杆、复习给 19 倍（式 5-3~5-5）</p>
+<p><img src="media/fig_08_neuroticism_fear.png"
+style="width:4.8in" /></p>
+<p>图 B-8 C08 N 维恐惧消退：N=0.8 半衰期延长 1.79 倍（式 4-1
+人格调制）</p>
+<p><img src="media/fig_09_threshold_saturation.png"
+style="width:4.8in" /></p>
+<p>图 B-9 C09 阈值饱和：顶满 3.5 后高位分支仍放行，正反馈回落无死锁</p>
+<p><img src="media/fig_10_extreme_saturation.png"
+style="width:4.8in" /></p>
+<p>图 B-10 C10 极端边界：60h 饱和输入下 e≤1.0、u≤3.0</p>
+<p><img src="media/fig_11_ego_release.png" style="width:4.8in" /></p>
+<p>图 B-11 C11 自我调节：抑制期开口违规 0、替代行为 574 次（式
+6-1/6-2）</p>
+<p><img src="media/fig_12_fault_rate.png" style="width:4.8in" /></p>
+<p>图 B-12 C12 综合故障率对照：1.540 → 0.065（降幅 95.8%）</p>
+<p><img src="media/fig_13_hebbian_gates.png" style="width:4.8in" /></p>
+<p>图 B-13 C13 Hebbian 两道门：4000 次抽样中跨主体边 0 条，同主体 24h
+内只加 γ·0.2=0.012，远距对 0.06（式 5-6）</p>
+<p><img src="media/fig_14_recall_gate.png" style="width:4.8in" /></p>
+<p>图 B-14 C14 复习防作弊：同一轮连问 5 次只计 1 次，隔天问 6 次计 6
+次（式 5-8）</p>
+<p><img src="media/fig_15_sweep_tiers.png" style="width:4.8in" /></p>
+<p>图 B-15 C15 体检日归档：400 条混合库推进 30 天，累计归档
+85/156/192/192，三档命中 0/0/192，第 30 天在线 208（式 5-9）</p>
+<h2 id="b.3-仿真脚本结构">B.3 仿真脚本结构</h2>
+<p><code>sim/shihai_sim.py</code> 单文件约 1200 行，分五段：</p>
+<p>（1）常量区：DIMS/TAU（式 4-1
+时间常数）、KAPPA/ETA、LAMBDA_TYPE（图谱节点侧）、
+ALPHA_MEM/HALF_LIFE_DAYS/IMP_BETA/STAB_EMO_ALPHA/STAB_RECALL_BETA/STAB_RECALL_MAX
+（式 5-3~5-5）、GAMMA/THETA_ACT/W_MAX（式
+5-6）、RECALL_MIN_OVERLAP/RECALL_MIN_GAP （式
+5-8）、SWEEP_DAYS/SWEEP_R（式 5-9）、FIRE_THRESHOLD/URGE_CEILING/
+GATE_MAX/STREAK_GATE_STEP（§7）、RHO/LOW_RATIO（§5.10.1），逐项注明对应
+正文公式号；（2）解析函数：tau_eff、emo_rhs/emo_rk4（RK4 +
+每级投影钳位）、
+urge_rhs/urge_rk4、lambda_eff、alpha_from_half_life、stability、lam_mem、
+retention、half_life_h、timing_fit、mood_state；（3）MindSim
+决策流仿真器：消息泊松流、图谱扩散与 Hebbian 离散映射（衰减项用精确指数
+exp(−λ·Δt)）、开口后反馈回路 （回复延迟
+~1.2h）、五道防线开关（guards）、f1–f5 故障计数、替代行为
+计数；（4）C01–C15 检查函数（C13 两道门、C14 复习计分、C15
+体检日归档）， 每个返回 dict 并落盘 metrics.json；（5）
+run_all/main：汇总、绘图（matplotlib Agg、Microsoft YaHei）。</p>
+<p>运行方式：<code>python sim/shihai_sim.py [--seed N]</code>；依赖仅
+numpy 与 matplotlib。随机种子默认 20261110；所有随机流共用同一 MindSim
+内 Generator，保证横向可比。</p>
+<h2 id="b.4-人格与记忆实现索引">B.4 人格与记忆实现索引</h2>
+<p>正文方程与实现的对应关系（行号以 2026-11-10 版本为准）：</p>
+<table style="width:97%;">
+<colgroup>
+<col style="width: 29%" />
+<col style="width: 36%" />
+<col style="width: 31%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: left;"><strong>论文条目</strong> *</th>
+<th style="text-align: left;">*实现符号**</th>
+<th style="text-align: center;"><strong>位置</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">式 4-1 情绪场</td>
+<td style="text-align: left;">EmotionField.tau_eff/step</td>
+<td style="text-align: center;">emotion.py:73/82</td>
+</tr>
+<tr>
+<td style="text-align: left;">式 5-2 λ_v(e)</td>
+<td style="text-align: left;">lambda_eff</td>
+<td style="text-align: center;">emotion.py:108</td>
+</tr>
+<tr>
+<td style="text-align: left;">式 5-3~5-5 保持率</td>
+<td style="text-align: left;">FactItem.stability/
+retention/decay_to</td>
+<td style="text-align: center;">memory_v2.py:167/175/ 182</td>
+</tr>
+<tr>
+<td style="text-align: left;">式 5-3~5-5 事件侧</td>
+<td style="text-align: left;">EventItem.stability/
+retention/decay_to</td>
+<td style="text-align: center;">memory_v2.py:218/230/ 236</td>
+</tr>
+<tr>
+<td style="text-align: left;">式 5-1 扩散</td>
+<td style="text-align: left;">MemoryGraph.activate_and _spread</td>
+<td style="text-align: center;">graph.py:342</td>
+</tr>
+<tr>
+<td style="text-align: left;">式 5-6 Hebbian</td>
+<td style="text-align: left;">MemoryGraph.hebbian</td>
+<td style="text-align: center;">graph.py:423</td>
+</tr>
+<tr>
+<td style="text-align: left;">式 5-6 门一/门二</td>
+<td style="text-align: left;">_sender_of / _born_of</td>
+<td style="text-align: center;">graph.py:458/463</td>
+</tr>
+<tr>
+<td style="text-align: left;">图谱类型衰减</td>
+<td style="text-align: left;">MemoryGraph.decay_step</td>
+<td style="text-align: center;">graph.py:473</td>
+</tr>
+<tr>
+<td style="text-align: left;">梦境修剪</td>
+<td style="text-align: left;">MemoryGraph.dream</td>
+<td style="text-align: center;">graph.py:491</td>
+</tr>
+<tr>
+<td style="text-align: left;">式 7-1 念头累积</td>
+<td style="text-align: left;">UrgeEngine.step</td>
+<td style="text-align: center;">urge.py:75</td>
+</tr>
+<tr>
+<td style="text-align: left;">§7.2 有效阈值</td>
+<td style="text-align: left;">threshold_effective / should_fire</td>
+<td style="text-align: center;">adapt.py:194 / urge.py:96</td>
+</tr>
+<tr>
+<td style="text-align: left;">式 6-1/6-2 释放许可</td>
+<td style="text-align: left;">EgoRegulator.release_
+permission/decide</td>
+<td style="text-align: center;">ego.py:85/120</td>
+</tr>
+<tr>
+<td style="text-align: left;">§8 目标演化</td>
+<td style="text-align: left;">goal_drift</td>
+<td style="text-align: center;">goals.py:16</td>
+</tr>
+<tr>
+<td style="text-align: left;">§9.1 慢参数</td>
+<td style="text-align: left;">AdaptEngine.on_user_
+message/on_silence/q_updat</td>
+<td style="text-align: center;">adapt.py:66/164/184 e</td>
+</tr>
+<tr>
+<td style="text-align: left;">§10.2 看门狗</td>
+<td style="text-align: left;">MindEngine.tick</td>
+<td style="text-align: center;">engine.py:245</td>
+</tr>
+<tr>
+<td style="text-align: left;">§7.3 由头锚点</td>
+<td style="text-align: left;">MindEngine._anchor_reason</td>
+<td style="text-align: center;">engine.py:425</td>
+</tr>
+<tr>
+<td style="text-align: left;">式 6-2 替代行为</td>
+<td style="text-align: left;">MindEngine._ego_intervene</td>
+<td style="text-align: center;">engine.py:325</td>
+</tr>
+<tr>
+<td style="text-align: left;">§13.4 行动记忆</td>
+<td style="text-align: left;">MindEngine.consume_fired</td>
+<td style="text-align: center;">engine.py:490</td>
+</tr>
+<tr>
+<td style="text-align: left;">记忆固结提示词（imp 字段）</td>
+<td style="text-align: left;">_COMMIT_PROMPT</td>
+<td style="text-align: center;">memory.py:67</td>
+</tr>
+<tr>
+<td style="text-align: left;">imp 规则兜底</td>
+<td style="text-align: left;">_mem_rule_imp</td>
+<td style="text-align: center;">memory.py:431</td>
+</tr>
+<tr>
+<td style="text-align: left;">峰值冻结</td>
+<td style="text-align: left;">memory_watch</td>
+<td style="text-align: center;">memory.py:224</td>
+</tr>
+<tr>
+<td style="text-align: left;">异步固结（一次 LLM 产事件+事实+imp）</td>
+<td style="text-align: left;">_mem_commit</td>
+<td style="text-align: center;">memory.py:327</td>
+</tr>
+<tr>
+<td style="text-align: left;">召回格式化（豁免 通道）</td>
+<td style="text-align: left;">_mem_format_recall</td>
+<td style="text-align: center;">memory.py:725</td>
+</tr>
+<tr>
+<td style="text-align: left;">记忆衰减常数 α</td>
+<td style="text-align: left;">ALPHA_FACT_NORMAL/CORE/ EVENT（由半衰期
+15/90/30 天反算）</td>
+<td style="text-align: center;">memory_v2.py:52–54</td>
+</tr>
+<tr>
+<td style="text-align: left;">式 5-4 重要度系数</td>
+<td style="text-align: left;">IMP_BETA=2.0</td>
+<td style="text-align: center;">memory_v2.py:76</td>
+</tr>
+<tr>
+<td style="text-align: left;">式 5-4 情绪/复习项</td>
+<td style="text-align: left;">STAB_EMO_ALPHA=2.0 / STAB_RECALL_BETA=1.5
+/ STAB_RECALL_MAX=12</td>
+<td style="text-align: center;">memory_v2.py:83–85</td>
+</tr>
+<tr>
+<td style="text-align: left;">式 5-8 复习两道闸</td>
+<td style="text-align: left;">RECALL_MIN_OVERLAP=2 /
+RECALL_MIN_GAP=24h</td>
+<td style="text-align: center;">memory_v2.py:89–90</td>
+</tr>
+<tr>
+<td style="text-align: left;">式 5-9 体检日归档</td>
+<td style="text-align: left;">EventBank.archive_stale</td>
+<td style="text-align: center;">memory_v2.py:428</td>
+</tr>
+<tr>
+<td style="text-align: left;">事实检索（+0.35·imp 排序）</td>
+<td style="text-align: left;">FactBank.retrieve</td>
+<td style="text-align: center;">memory_v2.py:366</td>
+</tr>
+<tr>
+<td style="text-align: left;">事件固结（imp 透传 E ）</td>
+<td style="text-align: left;">ventBank.commit</td>
+<td style="text-align: center;">memory_v2.py:504</td>
+</tr>
+<tr>
+<td style="text-align: left;">召回与批量 boost</td>
+<td style="text-align: left;">MemoryV2.recall</td>
+<td style="text-align: center;">memory_v2.py:669</td>
+</tr>
+<tr>
+<td style="text-align: left;">时序注入三档</td>
+<td style="text-align: left;">_mem_tier_quota / _mem_timeline</td>
+<td style="text-align: center;">memory.py:617/633</td>
+</tr>
+<tr>
+<td style="text-align: left;">注入与相关性闸</td>
+<td style="text-align: left;">memory_inject</td>
+<td style="text-align: center;">memory.py:446</td>
+</tr>
+</tbody>
+</table>
+<p>以上 13 个模块（表 18-1）全部通过 py_compile 静态编译；记忆链路修补
+（imp 直用、默认 0.0、闸豁免、排序加权、批量落盘、分布日志）已在
+2026-11-10 完成离线自检。</p>
+</body>
+</html>
