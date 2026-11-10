@@ -92,6 +92,13 @@ AstrBot_snowluma\
 ├── sim\                            # 数值仿真
 │   ├── shihai_sim.py               # 单文件，14 组检查 + 故障率标定
 │   └── out\                        # 15 张检查图 + metrics.json
+├── front_end\                      # 心智观测台（浏览器实时看 z(t)）
+│   ├── 识海心智观测台.html           # 单文件前端，无构建依赖
+│   ├── serve.py                    # 本地服务 + AstrBot 反向代理（127.0.0.1:6191）
+│   ├── 遥测录制.py                  # 采样写 assets\history.jsonl（本包不含历史数据）
+│   ├── serve_config.json           # 监听地址 / 令牌（令牌已清空）
+│   ├── 识海观测台.apk                # 手机壳
+│   └── assets\ocean_maiden.jpg
 ├── scripts\                        # 启动脚本与看门狗
 │   ├── 启动机器人.bat / astrbot_start.bat / snowluma_start.bat
 │   ├── 在线模式.bat / 离线模式.bat
@@ -271,7 +278,10 @@ class HelloPlugin(Star):
 
 ## 五、可选功能
 
-- **识海观测台**（`识海观测台\`）：浏览器实时看她的 z(t)——情绪场、念头 u、锚点由头、主动决定档案、Guard 审计日志，还能一键"让她现在就想开口"。用法：`python 识海观测台\serve.py`，然后浏览器打开 `http://127.0.0.1:6191/`。**必须走 serve.py**：直接双击 HTML 文件会因 file:// 拿不到后端数据，页面永远显示"未接通"。
+- **识海观测台**（`front_end\`）：浏览器实时看她的 z(t)——情绪场、念头 u、锚点由头、主动决定档案、Guard 审计日志，还能一键"让她现在就想开口"。用法：`python front_end\serve.py`，然后浏览器打开 `http://127.0.0.1:6191/`。**必须走 serve.py**：直接双击 HTML 文件会因 file:// 拿不到后端数据，页面永远显示"未接通"。
+  - 目录内容：`识海心智观测台.html`（单文件前端，无构建依赖）、`serve.py`（本地服务 + AstrBot 反向代理，调 `6185` WebUI 拿 JWT 再转发 `/api/plug/astrbot_plugin_shihai/{state,cmd}`）、`遥测录制.py`（把 z(t) 采样写成 `assets\history.jsonl`，本包未附、运行后自生成）、`serve_config.json`（监听地址与令牌）、`识海观测台.apk`（手机壳）、`assets\ocean_maiden.jpg`。
+  - 路径约定：`serve.py` 默认把"上一级目录 + `data\`"当作 AstrBot 运行目录，所以把 `front_end\` 放到 `data\` 同级即可；放在别处时用环境变量 `SHIHAI_DATA_ROOT` 指向含 `data\` 的目录，用 `ASTRBOT_BASE` 指向 WebUI 地址。
+  - 令牌：`serve_config.json` 里的 `token` 在模板中已清空，需要的话用环境变量 `SHIHAI_TOKEN`（或自己填回去）——它同时用于页面的 Bearer 校验和短信 WebHook；`host` 默认 `0.0.0.0`，只想本机看就改回 `127.0.0.1`。
 - **识海·信使（短信→快递上报）**：手机装 SmsForwarder App，WebHook 填 `http://电脑局域网IP:6187/sms` + 插件配置里的 Token；快递短信会自动解析并私聊上报用户。电脑端需放行 6187 端口入站（管理员 PowerShell：`netsh advfirewall firewall add rule name="ShihaiSms 6187" dir=in action=allow protocol=TCP localport=6187`）。
 - **看门狗**（`scripts\watchdog\`）：定时检查 AstrBot(6199)/SnowLuma(5099) 端口，掉线自动拉起。用管理员 PowerShell 一条命令注册（每 3 分钟跑一次）：
   ```
@@ -419,6 +429,7 @@ RVC 官方建议至少 **10 分钟低底噪语音**。每轮 60 段约几分钟�
 - 人格提示词（"小鱼"人格）与日记、聊天记录、会话数据库（`data_v4.db`、SnowLuma 账号数据、记忆库）
 - QQ 号、管理员 QQ、WebUI 密码与 token（AstrBot 后台已重置为 `astrbot`/`astrbot`，SnowLuma 首次启动会让你设密码）
 - 备用 QQ 客户端目录、备份 zip、日志（本方案实际使用 SnowLuma）
+- 观测台（`front_end\`）里的账号痕迹：示例日志中的真实 QQ 号 → `1000000001`，QQ 昵称与人设名 → `用户` / `小助手`，`serve_config.json` 的访问令牌已置空（走环境变量 `SHIHAI_TOKEN`）
 
 ## 八、常见问题
 

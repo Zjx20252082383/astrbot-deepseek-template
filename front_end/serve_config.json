@@ -1,0 +1,46 @@
+{
+  "host": "0.0.0.0",
+  "port": 6191,
+  "token": "",
+  "sms_filter": {
+    "enabled": true,
+    "max_length": 200,
+    "sender_allowlist": [],
+    "sender_blocklist": [],
+    "rate_limit": {
+      "enabled": true,
+      "per_minute": 5
+    },
+    "verification": {
+      "enabled": true,
+      "min_digits": 4,
+      "max_digits": 8,
+      "keywords": [
+        "验证码",
+        "校验码",
+        "动态码",
+        "安全码",
+        "验证代码",
+        "短信码",
+        "口令",
+        "取件码"
+      ]
+    },
+    "marketing": {
+      "enabled": true,
+      "sender_prefixes": [],
+      "keywords": [
+        "退订",
+        "回T",
+        "回TD",
+        "回N",
+        "拒收",
+        "免打扰",
+        "拒绝接收"
+      ]
+    },
+    "pure_link": {
+      "enabled": true
+    }
+  }
+}
