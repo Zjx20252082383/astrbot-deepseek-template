@@ -437,3 +437,28 @@ RVC 官方建议至少 **10 分钟低底噪语音**。每轮 60 段约几分钟�
 - **QQ 被风控掉线了？** QQ 登录态被服务端吊销时（提示"用户身份已失效"），自动重连无效——用手机 QQ 扫码重新登录电脑 QQ 即可，SnowLuma 会自动重新注入。看门狗只负责拉起 SnowLuma 进程，登录这步必须人工。
 - **端口被占用？** 6199/6185 在 `data\cmd_config.json` 里改，5099 在 `snowluma\config\runtime.json` 里改。
 - **改了配置不生效？** 重启 AstrBot（关掉窗口再跑 `启动机器人.bat`，或调 `mode.ps1`）。
+
+## 九、仓库结构与分工约定
+
+仓内七个一级目录各管一摊，加新东西时请放对位置，不要往根目录堆：
+
+| 目录 | 内容 | 谁能改 |
+|---|---|---|
+| `paper\` | 论文的 `.md` / `.html` / `.pdf` 三种形态，以及 `media\` 下的仿真配图 | 论文负责人 |
+| `sim\` | 论文对应的仿真代码（`shihai_sim.py`）与 `out\` 下的检查图、`metrics.json` | 论文/仿真负责人 |
+| `snowluma\` | QQ 端（SnowLuma）的配置与协议文档；日后整体改名为 `QQBot` | QQ 端负责人 |
+| `front_end\` | 识海观测台前端：`识海心智观测台.html`、`serve.py`、`.apk`、遥测脚本 | 前端负责人 |
+| `plugins\` | 各「识海」标识的 AstrBot 插件（`astrbot_plugin_shihai*` + 第三方 `clonetts`/`ai_cover`/`autobackup`） | 各插件作者 |
+| `scripts\` | Git 与机器人启动脚本、看门狗（`watchdog\`）、在线/离线模式 | 运维 |
+| `README.md` | 内部说明文档（对外发布前需再脱敏一轮） | 集成者 |
+
+**分支约定**：`main` 保持可运行、可演示的稳定版，**日常不再直接往 main 提交**。
+
+| 分支 | 归属 | 干什么 |
+|---|---|---|
+| `branch-structure` | 集成者 | 目录结构、跨模块整合、合并各分支 |
+| `branch-Flutter` | Flutter 负责人 | 移动端 App（观测台客户端） |
+| `branch-QQbot` | QQ 端负责人 | `snowluma\` → `QQBot` 的重构与登录/风控 |
+| `clean-release` | 归档 | 对外发布用的精简快照 |
+
+流程：在各自分支开发 → 自测通过 → 提 PR 到 `main` → 集成者审一遍再合并。合并前至少确认三件事：`plugins\` 能 import、`python front_end\serve.py` 能起、论文重出命令没被改坏。
