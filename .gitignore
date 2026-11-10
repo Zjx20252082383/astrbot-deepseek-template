@@ -1,0 +1,34 @@
+# 本仓库只放代码与文档，不放运行态。公开仓库，提交前请 git status 看一眼。
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# AstrBot 运行目录（含日志、人格、日记、会话库、api key，一律不入仓）
+/data/
+/logs/
+/config/
+
+# 插件运行时产物
+plugins/**/voice_cache/
+plugins/**/stickers/
+*.db
+*.sqlite
+*.sqlite3
+
+# 前端遥测与本地录制数据
+front_end/assets/history.jsonl
+
+# 本地备份与临时件
+*.bak
+*.tmp
+*_backup*/
+
+# 编辑器与系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini

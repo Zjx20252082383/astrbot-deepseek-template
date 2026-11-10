@@ -462,3 +462,30 @@ RVC 官方建议至少 **10 分钟低底噪语音**。每轮 60 段约几分钟�
 | `clean-release` | 归档 | 对外发布用的精简快照 |
 
 流程：在各自分支开发 → 自测通过 → 提 PR 到 `main` → 集成者审一遍再合并。合并前至少确认三件事：`plugins\` 能 import、`python front_end\serve.py` 能起、论文重出命令没被改坏。
+
+## 十、新成员上手
+
+拿到 Write 权限后，**不要在手头那份旧 clone 上切分支**。旧 clone 是上一版布局（根目录有 `data\` 和 `.bat`），切过去后这些**未被跟踪的本地文件不会自动消失**，会和新代码混在一起，看着像"代码没更新"，还容易被 `git add -A` 连带提交。重新拉一份最省事：
+
+```bash
+git clone https://github.com/Zjx20252082383/astrbot-deepseek-template.git shihai
+cd shihai
+git switch branch-Flutter          # 或 branch-QQbot / branch-structure
+```
+
+`git switch` 会自动建同名本地分支并跟踪 `origin/` 上那一支；如果你的本地已经有同名分支，用 `git switch -c branch-Flutter origin/branch-Flutter` 明确指定。
+
+改完代码提交并推回自己的分支：
+
+```bash
+git status                 # 先看一眼，确认没有 data\、日志、key 混进去
+git add -A
+git commit -m "说清楚改了什么"
+git push                   # 已跟踪 origin/branch-xxx，直接推即可；首次可 git push -u origin branch-Flutter
+```
+
+三条不能破的：
+
+1. **不推 main**。main 有保护规则，`write` 权限推不上去，一律提 PR。
+2. **不提交运行态**。`data\`、`logs\`、`config\`、`__pycache__`、`history.jsonl` 已在 `.gitignore` 里挡着，别用 `git add -f` 强行加；那里有 api key、聊天记录、人格和日记。
+3. **提交前 `git status`**。这个仓库是公开的，一次误提交就是永久公开，删了也在历史里。
