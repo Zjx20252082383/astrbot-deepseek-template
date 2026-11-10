@@ -1,0 +1,40 @@
+# ==== 运行时生成的敏感数据（含 QQ 账号 / 聊天记录 / 密钥），绝不能入库 ====
+data/data_v4.db
+data/data_v4.db-journal
+data/data_v4.db-wal
+data/data_v4.db-shm
+data/plugin_data/
+data/logs/
+data/temp/
+data/knowledge_base/
+data/t2i_templates/
+data/dist/
+data/dashboard.zip
+data/*.bak
+snowluma/
+snowluma/data/
+snowluma/config/onebot_*[0-9].json
+snowluma/config/runtime.json
+snowluma/config/ui.json
+watchdog/mode.txt
+watchdog/disabled_by_offline.txt
+watchdog/cool_*.txt
+watchdog/*.log
+watchdog/astrbot_boot.log
+watchdog/snowluma_boot.log
+识海观测台/serve_config.json
+识海观测台/history.jsonl
+识海观测台/*.apk
+识海观测台/*.jpg
+识海观测台/*-v*.html
+识海观测台/遥测录制.py
+
+# ==== 运行时缓存 ====
+**/__pycache__/
+*.pyc
+*.log
+
+# ==== 系统杂项 ====
+Thumbs.db
+desktop.ini
+data/plugins/*/voice_cache/

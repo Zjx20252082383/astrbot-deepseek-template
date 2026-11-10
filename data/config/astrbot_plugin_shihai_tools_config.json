@@ -1,0 +1,7 @@
+{
+  "api_key": "",
+  "base_url": "https://uapis.cn",
+  "enable_tools": true,
+  "tools_whitelist": "misc.hotboard,misc.weather,misc.worldtime,misc.timestamp,misc.lunartime,misc.holiday-calendar,misc.movie-box-office,convert.json,convert.unixtime,translate.text,ai.translate,image.bing-daily,social.bilibili.userinfo,social.qq.userinfo",
+  "request_timeout": 30
+}

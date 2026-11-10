@@ -1,0 +1,20 @@
+{
+  "backup_path": {
+    "type": "string",
+    "description": "备份保存位置",
+    "hint": "备份文件的保存目录，默认为AstrBot的上一级文件夹",
+    "default": ""
+  },
+  "cron_expression": {
+    "type": "string",
+    "description": "备份时间表达式",
+    "hint": "使用cron表达式定义定时备份时间，默认每7天备份一次（0 0 */7 * *）",
+    "default": "0 0 */7 * *"
+  },
+  "max_backups": {
+    "type": "int",
+    "description": "最大备份数量",
+    "hint": "保留的最近备份文件数量，超过此数量将删除最旧的备份",
+    "default": 5
+  }
+}

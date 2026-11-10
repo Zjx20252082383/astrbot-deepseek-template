@@ -1,0 +1,8 @@
+﻿{
+    "enabled": true,
+    "r_t_limit": 4,
+    "r_t_hours": 24,
+    "inject_style": true,
+    "postcheck": true,
+    "intensity_tol": 0.35
+}
