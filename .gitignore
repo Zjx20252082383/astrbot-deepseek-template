@@ -32,3 +32,9 @@ front_end/assets/history.jsonl
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# watchdog 运行态产物（冷却标记、模式与启动日志）
+scripts/watchdog/cool_*.txt
+scripts/watchdog/mode.txt
+scripts/watchdog/*.log
+scripts/watchdog/*_boot.log
