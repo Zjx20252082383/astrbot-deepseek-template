@@ -204,6 +204,8 @@ class EventItem:
     de_dt: float = 0.0
     peak_u: float = 0.0
     doc_id: Optional[str] = None
+    # 方案 A：指向 transcript.db 中同一轮的逐字原文（turn_id），需要时回查
+    transcript_turn_id: Optional[str] = None
     emotion_tag: Optional[str] = None
     edge_kw: List[str] = field(default_factory=list)
     edge_emotion: List[str] = field(default_factory=list)

@@ -527,12 +527,36 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
                 event.set_extra("_shihai_voice_text", [])
                 for line in voices:
                     await self._remember_self_line(key, line)
+                    await self._archive_transcript(event, key, line, kind="voice")
                 return
             text = self._result_text(event)
             if text:
                 await self._remember_self_line(key, text, tag="")
+                await self._archive_transcript(event, key, text, kind="text")
         except Exception as e:  # noqa: BLE001 - 补记失败不能影响出话
             logger.warning(f"[识海行为] 发送后补记失败: {type(e).__name__} {e}")
+
+    async def _archive_transcript(self, event: AstrMessageEvent, key: str,
+                                 text: str, kind: str = "text") -> None:
+        """把小满实际发出的话逐字归档到 transcript.db（方案 A）。
+
+        不传 msg_id：此处 event.message_obj 是用户消息，其 id 已被用户侧
+        归档占用；assistant 侧靠 turn_id 关联同一轮，允许一轮多条。
+        """
+        try:
+            body = str(text or "").strip()
+            if not body:
+                return
+            turn_id = event.get_extra("_shihai_turn_id") or None
+            group_id = getattr(event.message_obj, "group_id", None)
+            await asyncio.to_thread(
+                self._transcript.append,
+                role="assistant", content=body, ts=time.time(), origin=key,
+                sender_id=str(self.bot_qid or ""), sender_name="小满",
+                group_id=str(group_id) if group_id else None,
+                kind=kind, turn_id=turn_id)
+        except Exception as e:  # noqa: BLE001 - 归档失败不能影响出话
+            logger.warning(f"[识海行为] 逐字归档回复失败: {type(e).__name__} {e}")
 
     @filter.on_waiting_llm_request()
     async def interrupt_stale_reply(self, event: AstrMessageEvent):
@@ -1121,3 +1145,41 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
         return ("任务情境已更新："
                 f"下课 {ctx.get('class_end')}，驿站关门 {ctx.get('station_close')}，"
                 f"步行 {ctx.get('walk_minutes')} 分钟，地点 {ctx.get('pickup_location')}。")
+
+    @filter.llm_tool("recall_transcript")
+    async def recall_transcript(self, event: AstrMessageEvent, keyword: str,
+                               days: int = 30, role: str = ""):
+        """检索你和鑫鑫过去对话的逐字原文。需要确认某句话当初到底怎么说、回忆某次具体对话时用；不是每轮都调，只在需要原话时用，返回内容不会常驻上下文。
+
+        Args:
+            keyword (str): 要找的关键词，如人名、地点、事情
+            days (int): 往前找多少天，默认 30
+            role (str): 可选，user 或 assistant，只看某一方
+        """
+        kw = str(keyword or "").strip()
+        if not kw:
+            return "需要给一个关键词才能检索原话。"
+        since = None
+        try:
+            since = time.time() - max(1, int(days)) * 86400
+        except (TypeError, ValueError):
+            pass
+        origin = str(getattr(event, "unified_msg_origin", "") or "")
+        r = (role or "").strip()
+        if r not in ("user", "assistant"):
+            r = None
+        rows = await asyncio.to_thread(
+            self._transcript.search, kw,
+            origin=origin or None, since=since, role=r,
+            limit=5, snippet=200)
+        if not rows:
+            return f"没找到和「{kw}」有关的原话。"
+        lines = ["【逐字原话检索】关键词：" + kw]
+        for it in rows:
+            when = time.strftime("%m-%d %H:%M", time.localtime(it.get("ts", 0)))
+            who = "鑫鑫" if it.get("role") == "user" else "小满"
+            tag = (f"（{it.get('kind')}）"
+                   if it.get("kind") not in (None, "text") else "")
+            lines.append(f"{when} {who}{tag}：{it.get('content', '')}")
+        lines.append("（这些是当时的逐字原文，可直接引用；没列出的不要补编。）")
+        return "\n".join(lines)

@@ -44,6 +44,7 @@ from .query_classifier import needs_timeline
 from .memory_v2 import (
     EVENT_CONTENT_MAX, EVENT_TOP_N, FACT_TOP_N, TIMELINE_DAYS, MemoryV2, grams,
     is_degraded_content)
+from .transcript_store import TranscriptStore
 
 # 数据目录沿用旧契约（与 memory_v2.py 自检路径一致）
 NAME = "astrbot_plugin_qq_toolbox"
@@ -99,6 +100,8 @@ class MemoryMixin(SuiteBase):
         # 数据在 plugin_data/<NAME>/memory_v2/ 下（fact.json / event_snapshot.json）
         base = Path(self.module_data_dir(NAME)) / "memory_v2"
         self._memv2 = MemoryV2(base)
+        # 逐字归档库（方案 A）：本地 SQLite，与 JSON 摘要层并行
+        self._transcript = TranscriptStore(Path(base) / "transcript.db")
         # 滚动缓冲：最近的对话原文快照（峰值冻结时取材；重启丢失，不落盘）
         self._mem_buffer: list[dict[str, Any]] = []
         self._mem_last_content_ts: float = 0.0
@@ -240,11 +243,29 @@ class MemoryMixin(SuiteBase):
             text = self._memory_text(event)
             if not text or text.startswith("/"):
                 return
+            now = time.time()
             self._mem_buffer.append(
-                {"ts": time.time(), "sender": sender, "text": text[:120]})
+                {"ts": now, "sender": sender, "text": text[:120]})
             if len(self._mem_buffer) > 80:
                 del self._mem_buffer[: len(self._mem_buffer) - 80]
-            self._mem_last_content_ts = time.time()
+            self._mem_last_content_ts = now
+            # 逐字归档（方案 A）：用户原文落 SQLite，turn_id 存 extra，
+            # 供发送后钩子归档小满回复时关联同一轮
+            origin = str(getattr(event, "unified_msg_origin", "") or "")
+            turn_id = f"{origin}#{now:.3f}"
+            try:
+                event.set_extra("_shihai_turn_id", turn_id)
+                msg_id = str(getattr(event.message_obj, "message_id", "") or "")
+                group_id = getattr(event.message_obj, "group_id", None)
+                await asyncio.to_thread(
+                    self._transcript.append,
+                    role="user", content=text, ts=now, origin=origin,
+                    sender_id=sender,
+                    sender_name=str(event.get_sender_name() or ""),
+                    group_id=str(group_id) if group_id else None,
+                    kind="text", msg_id=msg_id or None, turn_id=turn_id)
+            except Exception as exc:  # noqa: BLE001 - 归档失败不能打断对话
+                logger.warning(f"[memoryv2] 逐字归档用户消息失败: {exc}")
         except Exception as exc:  # noqa: BLE001 - 观察失败不能打断对话
             logger.warning(f"[memoryv2] 观察消息失败: {exc}")
 
