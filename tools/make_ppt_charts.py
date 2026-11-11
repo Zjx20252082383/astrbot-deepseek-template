@@ -184,6 +184,26 @@ def cost_composition():
     save(fig, "cost_composition.png")
 
 
+# 9. 中国 AI 情感陪伴市场规模（中研普华，多来源交叉验证）
+def market_size():
+    fig, ax = plt.subplots(figsize=(8.5, 5))
+    years = ["2024", "2025", "2026", "2027", "2028"]
+    vals = [12.11, 38.66, 102.64, 241.02, 595.06]
+    colors = [GRAY, BLUE, ORANGE, ORANGE, RED]
+    bars = ax.bar(years, vals, color=colors, width=0.62)
+    for b, v in zip(bars, vals):
+        ax.text(b.get_x() + b.get_width()/2, v + 8, f"{v:.1f}",
+                ha="center", fontsize=11, fontweight="bold")
+    ax.set_ylabel("市场规模（亿元）")
+    ax.set_ylim(0, 660)
+    ax.set_title("中国 AI 情感陪伴市场：2024→2028，CAGR 约 148.7%",
+                 fontsize=13)
+    ax.annotate("4 年约 49 倍", xy=(4, 595), xytext=(2.6, 470),
+                fontsize=12, color=RED, fontweight="bold",
+                arrowprops=dict(arrowstyle="->", color=RED, lw=1.4))
+    save(fig, "market_size.png")
+
+
 if __name__ == "__main__":
     competitor_matrix()
     three_dim()
@@ -193,4 +213,5 @@ if __name__ == "__main__":
     channel_cost()
     peak_valley()
     cost_composition()
+    market_size()
     print("全部图表生成完毕 ->", OUT)
