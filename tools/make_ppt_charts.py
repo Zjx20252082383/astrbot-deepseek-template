@@ -184,23 +184,29 @@ def cost_composition():
     save(fig, "cost_composition.png")
 
 
-# 9. 中国 AI 情感陪伴市场规模（中研普华，多来源交叉验证）
-def market_size():
+# 9. 已发生的市场事实（仅采用已发生数据，不做未来外推）
+def market_facts():
     fig, ax = plt.subplots(figsize=(8.5, 5))
-    years = ["2024", "2025", "2026", "2027", "2028"]
-    vals = [12.11, 38.66, 102.64, 241.02, 595.06]
-    colors = [GRAY, BLUE, ORANGE, ORANGE, RED]
-    bars = ax.bar(years, vals, color=colors, width=0.62)
-    for b, v in zip(bars, vals):
-        ax.text(b.get_x() + b.get_width()/2, v + 8, f"{v:.1f}",
-                ha="center", fontsize=11, fontweight="bold")
-    ax.set_ylabel("市场规模（亿元）")
-    ax.set_ylim(0, 660)
-    ax.set_title("中国 AI 情感陪伴市场：2024→2028，CAGR 约 148.7%",
-                 fontsize=13)
-    ax.annotate("4 年约 49 倍", xy=(4, 595), xytext=(2.6, 470),
-                fontsize=12, color=RED, fontweight="bold",
-                arrowprops=dict(arrowstyle="->", color=RED, lw=1.4))
+    ax.axis("off")
+    ax.set_xlim(0, 10); ax.set_ylim(0, 7)
+    ax.text(0.2, 6.6, "已发生的市场事实（截至 2026 年公开数据）",
+            fontsize=14, fontweight="bold", color="#1f4e79")
+    facts = [
+        ("12.11 亿元", "2024 年中国 AI 情感陪伴市场规模（已发生，中研普华）"),
+        ("800 万+ 台", "全球情感机器人系统保有量"),
+        ("337 款", "全球在营 AI 陪伴 App（截至 2025-08）"),
+        ("1283 项", "国内情感机器人相关专利，2025 年申请同比 +142.4%"),
+    ]
+    for i, (big, desc) in enumerate(facts):
+        y = 5.3 - i * 1.35
+        ax.add_patch(FancyBboxPatch((0.2, y - 0.45), 2.6, 1.0,
+                     boxstyle="round,pad=0.08", fc="#eaf1f8", ec="#2f6fb0"))
+        ax.text(1.5, y, big, ha="center", va="center", fontsize=15,
+                fontweight="bold", color="#c0392b")
+        ax.text(3.1, y, desc, ha="left", va="center", fontsize=11.5,
+                color="#333")
+    ax.text(0.2, 0.25, "注：仅呈现已发生数据；第三方对 2025 年后的预测值不纳入本汇报。",
+            fontsize=10, color="#888")
     save(fig, "market_size.png")
 
 
@@ -213,5 +219,5 @@ if __name__ == "__main__":
     channel_cost()
     peak_valley()
     cost_composition()
-    market_size()
+    market_facts()
     print("全部图表生成完毕 ->", OUT)
