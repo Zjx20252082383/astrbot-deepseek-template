@@ -46,7 +46,7 @@ STOPWORDS = set(
     " 出来 起来 过来 下去 上来 回去 有些 一点 非常 真的 直接 今天 明天 昨天 刚才 等等 而且 或者 除了"
     " 时间 剩下 注意 记得 之后 以前 以后 上次 刚刚 其实 应该 可能 需要 开始 最后 问题 地方 工作"
     " 内容 消息 状态 参数 配置 主动 回复 请求 适合 有趣 黄脸 语音 重新 只是 还有 而是 对话 聊天 记录"
-    " 系统 框架 模型 提示 工具 调用 功能 插件 服务 账号 用户 日志 测试"
+    " 系统 框架 模型 提示 工具 调用 功能 插件 服务 账号 主人 日志 测试"
     " 明早 明晚 明日 今早 今晚 昨晚 待会 回头 下次 改天 周末 等会儿"
     " the a an is are was were be to of and in on it this that i you he she we they"
     " for with not have do does did so but at as or if".split()
@@ -176,8 +176,8 @@ class MemoryGraph:
     ) -> List[str]:
         """把一条用户消息写进图谱：关键词事实节点 + 事件节点（±情绪/高光节点）。
 
-        sender：消息主体（owner=用户 / other=群聊其他人 / bot=机器人自述）。
-        §9.1(c) 主体相关校验的数据基础——别人的记忆不能成为对用户开口的由头。
+        sender：消息主体（owner=主人 / other=群聊其他人 / bot=机器人自述）。
+        §9.1(c) 主体相关校验的数据基础——别人的记忆不能成为对主人开口的由头。
 
         返回本次创建/激活的节点 id 列表（供 Hebbian 共激活）。
         """
@@ -425,7 +425,7 @@ class MemoryGraph:
 
         两道门（防"记忆错构"）：
         1) 跨主体硬门：sender 不同直接不连（前摄/倒摄抑制的机制层面——
-           用户的抱怨 vs 小助手自己的话一旦连边，就会在她嘴里串成"我记错了"）；
+           鑫鑫的抱怨 vs 小满自己的话一旦连边，就会在她嘴里串成"我记错了"）；
         2) 时间邻近惩罚：同一主体、创建时间相差 24h 内、且这条边还没被反复
            共现确立过（共现 < NEAR_REPEAT 次）→ 这次只加 γ·NEAR_SCALE，
            不按正常强度连。碰巧在同一场对话里被一起提起的两件事（"点外卖"
@@ -456,7 +456,7 @@ class MemoryGraph:
         return n
 
     def _sender_of(self, nid: str) -> str:
-        """节点主体归属；历史数据缺字段时视为用户（owner）。"""
+        """节点主体归属；历史数据缺字段时视为主人（owner）。"""
         nd = self.nodes.get(nid) or {}
         return str(nd.get("sender", "owner") or "owner")
 
@@ -524,7 +524,7 @@ class MemoryGraph:
         (a) 节点绑定：候选必须绑定具体节点 ID + 内容摘要（本函数天然满足）
         (b) 时间明确：节点 created 时间戳可追溯（本函数天然满足）
         (c) 主体相关：sender_filter 非 "" 时，仅保留该主体的记忆节点
-            （群聊里别人的事不能成为对用户开口的由头）
+            （群聊里别人的事不能成为对主人开口的由头）
         """
         now = now if now is not None else time.time()
         out: List[Dict[str, str]] = []
@@ -534,7 +534,7 @@ class MemoryGraph:
             if nd["type"] == "quote":  # 语录是风格语料，不作为开口由头
                 continue
             if sender_filter and nd.get("sender", "owner") not in (
-                    sender_filter, ""):  # 未知归属视为用户的（历史数据兼容）
+                    sender_filter, ""):  # 未知归属视为主人的（历史数据兼容）
                 continue
             age_h = (now - nd["created"]) / 3600.0
             # 指代未来的时间词会过期："明天要考试"过完那天中午就不再是"明天"——
@@ -591,7 +591,7 @@ class MemoryGraph:
             return False, "(b) 时间不明确：节点无写入时间戳"
         # (c) 主体相关
         if str(nd.get("sender", "owner") or "owner") not in ("owner", ""):
-            return False, "(c) 主体不符：该记忆属于其他主体，不能作为对用户开口的由头"
+            return False, "(c) 主体不符：该记忆属于其他主体，不能作为对主人开口的由头"
         return True, "校验通过"
 
     @staticmethod

@@ -1,4 +1,4 @@
-"""AstrBot 插件：小鱼声音
+"""AstrBot 插件：大肥鱼声音
 
 让她能听、能说、还能唱：
 - 听懂：收到语音消息自动转文字，她就能理解你在说什么
@@ -402,7 +402,7 @@ class VoiceMixin(SuiteBase):
 
         backend = str(self._voice_cfg("tts_backend", "breeze") or "breeze").strip().lower()
 
-        # 用户设定：清唱和聊天统一走豆包大模型音色；失败才降级 mimo/breeze
+        # 主人设定：清唱和聊天统一走豆包大模型音色；失败才降级 mimo/breeze
         try:
             await self._volc_tts(text, path, emotion, style)
             return path
@@ -932,7 +932,7 @@ class VoiceMixin(SuiteBase):
             return '唱歌功能暂时关着，跟用户说一句"下次再唱"带过就行。'
         raw = (lyrics or "").strip()
         if not raw:
-            raw = "小肥鱼摇摇尾巴，陪用户到天亮~"
+            raw = "小肥鱼摇摇尾巴，陪主人到天亮~"
 
         # 歌词切句、停顿与换气交给 _synthesize / _format_lyrics 处理
         raw = raw[:400]

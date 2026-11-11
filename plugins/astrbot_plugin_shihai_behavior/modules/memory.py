@@ -50,9 +50,9 @@ NAME = "astrbot_plugin_qq_toolbox"
 # 单条事实注入的字数上限：存量 v1 事实会有 80~110 字的长句，一条吃光预算
 FACT_LINE_MAX = 60
 
-# 称呼口径：对方叫「用户」，她自己叫「小助手」。记忆与转写里不使用「主人」「宠物」这类称呼。
-OWNER_NAME = "用户"
-SELF_NAME = "小助手"
+# 称呼口径：对方叫「鑫鑫」，她自己叫「小满」。记忆与转写里不使用「主人」「宠物」这类称呼。
+OWNER_NAME = "鑫鑫"
+SELF_NAME = "小满"
 
 # 时间线三档：(天数上界, 系数, 单条字数上限, 档名)。三档互不重叠——
 # 越近的档系数越高、字数越宽、给的名额越多；越远的档越压缩，因为"最近的
@@ -65,8 +65,8 @@ TIMELINE_TIERS = (
 # 兜底单条上限（命中不了任何档时用）
 TIMELINE_LINE_MAX = TIMELINE_TIERS[0][2]
 
-_COMMIT_PROMPT = """你是记忆整理助手。下面是你（小助手，住在 QQ 里的蓝色小鱼）和用户刚刚的一段对话记录。
-称呼只用「用户」和「小助手」；不要写「用户」「宠物」「饲主」这类称呼，转写里也别用。
+_COMMIT_PROMPT = """你是记忆整理助手。下面是你（小满，住在 QQ 里的蓝色大肥鱼）和鑫鑫刚刚的一段对话记录。
+称呼只用「鑫鑫」和「小满」；不要写「主人」「宠物」「饲主」这类称呼，转写里也别用。
 请输出 JSON：
 {"event": "用不超过100字概括这段对话里发生的事，写清楚时间点和结果",
  "emotion_tag": "happy/sad/angry/fear/love/surprise/calm 里选一个最贴近的",
@@ -88,7 +88,7 @@ HELP_TEXT = """记忆相关指令：
 /记忆  看看我记得关于你的事
 /记住 <内容>  手动记一件事（核心记忆，不衰减）
 /忘掉 <关键词>  删掉相关的一条事实
-/清空记忆  清空自己的事实层（用户可加「全部」）
+/清空记忆  清空自己的事实层（鑫鑫可加「全部」）
 /记忆帮助  显示这段说明"""
 
 
@@ -451,7 +451,7 @@ class MemoryMixin(SuiteBase):
                     logger.info(
                         "[memoryv2] imp 通胀抑制：近 %d 条 ≥0.8 占比 %.0f%%，本条 −0.1 → %.1f",
                         len(win), 100.0 * hi_ratio, imp_val)
-            # 质量闸（P0-4）：原文兜底（含换行 / 以「用户：」「小助手：」（旧「用户：」「我：」）
+            # 质量闸（P0-4）：原文兜底（含换行 / 以「鑫鑫：」「小满：」（旧「主人：」「我：」）
             # 开头的转写）
             # 或超过 100 字的摘要 → degraded，可检索但不进注入。
             # 阈值走 memory_v2.is_degraded_content 的统一口径，与 _COMMIT_PROMPT
@@ -688,7 +688,7 @@ class MemoryMixin(SuiteBase):
         取最后一节（当天夜里那篇通常是收束）的正文段落，跳过「## 12:36」这类
         时间戳行和「2026年11月10日」这类日期行，按"够长但不啰嗦"取最好的一句。
         日记是她自己的话，比事件原文干净，也自带日期。limit 由所在时间档决定。"""
-        text = str(text or "").replace("用户", OWNER_NAME).replace("宠物", SELF_NAME)
+        text = str(text or "").replace("主人", OWNER_NAME).replace("宠物", SELF_NAME)
         sections = re.split(r"\n##\s*", text)
         body = sections[-1] if sections else text
         paras = [p.strip().replace("\n", " ") for p in re.split(r"\n\s*\n", body)]
@@ -829,7 +829,7 @@ class MemoryMixin(SuiteBase):
         lines: list[tuple[str, bool]] = []
         for it in facts:
             subj, obj = str(it.subject or ""), str(it.obj or "")
-            # obj 已自带主语（"用户学业绩点…"）时不再重复拼 "用户：用户…"
+            # obj 已自带主语（"鑫鑫学业绩点…"）时不再重复拼 "鑫鑫：鑫鑫…"
             if subj and obj.startswith(subj):
                 text = f"{it.predicate}{obj}" if it.predicate else obj
             elif it.predicate:

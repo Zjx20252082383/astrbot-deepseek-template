@@ -740,7 +740,7 @@ class CoverMixin:
             happy = float(e.get("happy", 0.0))
             sad = float(e.get("sad", 0.0))
             if love >= 0.5:
-                return "心境提示：此刻对用户依恋很浓，这首唱得格外走心，回复里可以自然带一句此刻的感受。"
+                return "心境提示：此刻对主人依恋很浓，这首唱得格外走心，回复里可以自然带一句此刻的感受。"
             if happy >= 0.5:
                 return "心境提示：此刻很开心，回复可以雀跃一点。"
             if sad >= 0.5:
@@ -751,7 +751,7 @@ class CoverMixin:
 
     @filter.llm_tool("cover_tune")
     async def cover_tune(self, event: AstrMessageEvent, key: str, value: str):
-        """调整AI翻唱插件的参数（调参接口，改完立即生效并保存到配置）。可调参数：default_model(默认翻唱音色模型名)、index_rate(RVC特征索引占比,0~1)、vocal_gain(人声音量倍率,0~2)、instrumental_gain(伴奏音量倍率,0~2)、send_as_record(true=发语音/false=发MP3文件)、output_retention_hours(结果保留小时数,1~168)、mood_remark_enabled(识海心境提示开关true/false)。用户说"唱歌声音大一点""换个默认音色""下次发文件别发语音"这类要求时用。
+        """调整AI翻唱插件的参数（调参接口，改完立即生效并保存到配置）。可调参数：default_model(默认翻唱音色模型名)、index_rate(RVC特征索引占比,0~1)、vocal_gain(人声音量倍率,0~2)、instrumental_gain(伴奏音量倍率,0~2)、send_as_record(true=发语音/false=发MP3文件)、output_retention_hours(结果保留小时数,1~168)、mood_remark_enabled(识海心境提示开关true/false)。主人说"唱歌声音大一点""换个默认音色""下次发文件别发语音"这类要求时用。
 
         Args:
             key (str): 参数名
@@ -805,7 +805,7 @@ class CoverMixin:
         重要：song_name 必须带上你知道的原唱歌手名；如果第一首因版权下载失败，换其他歌手的版本重试后，回复里必须明确告诉用户"原唱版曲库没版权，这次用的是XX版伴奏"。
         Args:
             song_name(string): 歌曲名，尽量写成"歌名 原唱歌手"，如"晴天 周杰伦"。带原唱歌手名能避免搜到翻唱/山寨版；不带时可能搜到别人的版本。
-            model(string): 音色模型名，如 小鱼（你自己的声音）、芙宁娜；留空使用默认音色（小鱼）。
+            model(string): 音色模型名，如 大肥鱼（你自己的声音）、芙宁娜；留空使用默认音色（大肥鱼）。
             vocal_transpose(string): 人声变调半音数（-24~24 的整数），不写为 0。
             instrumental_transpose(string): 背景音乐变调半音数（-24~24 的整数），一般与人声相同。
             speed(string): 变速倍率 0.5~2.0 的数字，1 为原速。
@@ -882,7 +882,7 @@ class CoverMixin:
         )
         if _ok:
             # §7.5 bot 侧时序锚：翻唱成功写入行动日志（core 消费成记忆）
-            self._log_cover_action(f"我给用户唱了一首《{song.get('name', '未知')}》")
+            self._log_cover_action(f"我给主人唱了一首《{song.get('name', '未知')}》")
         return message
 
     def _log_cover_action(self, text: str) -> None:
@@ -908,9 +908,9 @@ class CoverMixin:
         rms_mix_rate: str = "",
         protect: str = "",
     ):
-        """查看或调整自己的翻唱音质参数。用户反馈"声音沙哑/有毛刺/人声太小/伴奏太响/不像你的声音"时调用。
+        """查看或调整自己的翻唱音质参数。主人反馈"声音沙哑/有毛刺/人声太小/伴奏太响/不像你的声音"时调用。
         不带任何参数 = 只查看当前参数值；带参数 = 修改对应项（只改传入的项，其他项不动）。
-        修改成功后，主动用 cover_song_by_name 重翻同一首歌发给用户对比效果。
+        修改成功后，主动用 cover_song_by_name 重翻同一首歌发给主人对比效果。
 
         Args:
             vocal_gain(string): 人声音量 0~2（当前1.2），嫌人声小调大、嫌刺耳调小。不调整就留空。
@@ -980,7 +980,7 @@ class CoverMixin:
         reply += "\n当前参数：\n" + "\n".join(f"{k} = {snapshot[k]}" for k in snapshot)
         if errors:
             reply += "\n注意：" + "；".join(errors)
-        reply += "\n接下来用 cover_song_by_name 重翻同一首歌，让用户对比效果。"
+        reply += "\n接下来用 cover_song_by_name 重翻同一首歌，让主人对比效果。"
         return reply
 
     @filter.llm_tool()
@@ -992,11 +992,11 @@ class CoverMixin:
         instrumental_transpose: str = "0",
         speed: str = "1.0",
     ):
-        """把用户发来的语音/歌曲文件制作成 AI 翻唱并发送。用户发完音频后说"翻唱"、"帮我翻唱这首歌"时调用。
-        用户还没发音频时不要调用本工具，先提醒用户把歌曲（MP3/语音）发过来。
+        """把主人发来的语音/歌曲文件制作成 AI 翻唱并发送。主人发完音频后说"翻唱"、"帮我翻唱这首歌"时调用。
+        主人还没发音频时不要调用本工具，先提醒主人把歌曲（MP3/语音）发过来。
 
         Args:
-            model(string): 翻唱音色模型名，如 小鱼（你自己的声音）、芙宁娜；留空使用默认音色（小鱼）。
+            model(string): 翻唱音色模型名，如 大肥鱼（你自己的声音）、芙宁娜；留空使用默认音色（大肥鱼）。
             vocal_transpose(string): 人声变调半音数（-24~24 的整数），女转男建议 -12，男转女建议 +12，不写为 0。
             instrumental_transpose(string): 背景音乐变调半音数（-24~24 的整数），一般与人声相同。
             speed(string): 变速倍率 0.5~2.0 的数字，1 为原速。

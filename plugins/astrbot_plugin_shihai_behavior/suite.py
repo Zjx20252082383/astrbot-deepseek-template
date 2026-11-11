@@ -1,4 +1,4 @@
-"""小鱼合集插件入口。
+"""大肥鱼合集插件入口。
 
 把原来的四个独立插件（告状 / 用量 / 语音 / QQ 工具箱）合并成一个插件：
 
@@ -187,7 +187,7 @@ class ViewEvent:
     """给 Web UI 的「伪事件」：让内部方法以为自己在处理一条管理员消息。"""
 
     def __init__(self, bot: Any = None, self_id: str = "", sender_id: str = "",
-                 sender_name: str = "用户", group_id: str = "") -> None:
+                 sender_name: str = "主人", group_id: str = "") -> None:
         self.bot = bot
         self.self_id = self_id
         self.sender_id = sender_id
@@ -484,7 +484,7 @@ class ToolboxSuiteBase(
             bot=bot,
             self_id=self_id,
             sender_id=sender,
-            sender_name=str(params.get("sender_name") or "用户"),
+            sender_name=str(params.get("sender_name") or "主人"),
             group_id=str(params.get("group_id") or ""),
         )
 

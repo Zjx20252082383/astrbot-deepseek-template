@@ -203,8 +203,8 @@ class MindEngine:
                           feedback: bool = True, is_owner: bool = True) -> Dict[str, Any]:
         """一条用户消息进来：s_ext 注入 → 反馈检测 → 图谱写入 → 扩散召回 → s_int → 情绪子步。
 
-        feedback=False（非用户消息且开启 owner_only_feedback）时只做感知与记忆，
-        不动 θ/Q —— 论文 §11 的适配只对用户生效。
+        feedback=False（非主人消息且开启 owner_only_feedback）时只做感知与记忆，
+        不动 θ/Q —— 论文 §11 的适配只对主人生效。
         is_owner：消息主体归属（§9.1(c) 主体相关校验的数据基础，写入图谱节点）。
         """
         now = now or time.time()
@@ -333,7 +333,7 @@ class MindEngine:
         if decision.defense == "displacement":
             # p₄ 图谱写入（慢，小时级）：把这次冲动固化为反思记忆
             rid = self.graph.add_observation(
-                f"反思：有点想找用户说话，但此刻{decision.branch}",
+                f"反思：有点想找主人说话，但此刻{decision.branch}",
                 {d: 0.0 for d in EMOTION_DIMS}, now, sender="bot")[0:1]
             entries.append(EgoRegulator.trace_entry(now, "p4", rid[0] if rid else "", 1.0))
         if self.ego.reflux_enabled:
@@ -466,7 +466,7 @@ class MindEngine:
             "intent_id": f"intent:{int(now * 1000)}",
             "reason": reason,
             "self_view": (
-                f"我在 {time.strftime('%H:%M', time.localtime(now))} 决定主动向用户靠近，"
+                f"我在 {time.strftime('%H:%M', time.localtime(now))} 决定主动向主人靠近，"
                 f"因为{reason}；念头强度 u={self.state.urge:.2f}，"
                 f"已越过有效阈值"
             ),
@@ -522,7 +522,7 @@ class MindEngine:
                 self.adapt.q_update(self.state, action, False, 0.5)
         self.state.last_bot_proactive_at = now
         self.state.last_proactive_text = text[:120]
-        # 只有送达的 action 才写进档案：失败的动作不能被用户后续的回复
+        # 只有送达的 action 才写进档案：失败的动作不能被主人后续的回复
         # 当成"这次主动奏效"记正反馈（配合 adapt 里去掉的兜底 action）。
         self.state.last_proactive_action = action if sent else ""
         self.state.last_proactive_replied = False
@@ -546,16 +546,16 @@ class MindEngine:
             # §7.5 bot 侧时序锚：主动行动同时入记忆（进 R_t）——
             # 被动对话的她也要"在场"，知道刚才是自己做了这件事。
             # 说说已经由 _toolbox_record 写进 action_log（避免重复入账），
-            # 其余出口按动作类型写正确的主语，不能一律说成"对用户说"。
+            # 其余出口按动作类型写正确的主语，不能一律说成"对主人说"。
             if action and action != "post_feed":
                 if action == "sing_cover" and text.startswith("我"):
                     # 唱歌出口的文本本身就是"我唱了《X》给你听"，再套前缀会重复
                     self.graph.add_bot_event(text[:90], self.state.e, now)
                 else:
                     prefix = {
-                        "draw_share": "我画了一张图发给用户：",
-                        "sing_cover": "我唱了一首歌给用户听：",
-                    }.get(action, "我对用户说：")
+                        "draw_share": "我画了一张图发给主人：",
+                        "sing_cover": "我唱了一首歌给主人听：",
+                    }.get(action, "我对主人说：")
                     self.graph.add_bot_event(f"{prefix}{text[:90]}",
                                              self.state.e, now)
         self.state.save()

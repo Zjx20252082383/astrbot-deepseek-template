@@ -6,7 +6,7 @@
 增删行为、调触发阈值 = 编辑 behaviors.json 或调用 behavior_tune 工具，无需改代码。
 
 needs 字段 = 执行依赖的适配器（论文 §13.1 Platform Adapter）：
-    ""          行为插件自己就能完成（生成一句话发给用户）
+    ""          行为插件自己就能完成（生成一句话发给主人）
     "ai_cover"  需要 RVC 翻唱服务（v1 不自动触发，留作涌现候选）
 """
 
@@ -50,7 +50,7 @@ DEFAULT_BEHAVIORS: List[Dict[str, Any]] = [
         "requires": {}, "anchor": ["promise"], "enabled": True,
     },
     {
-        "id": "sing_cover", "label": "唱歌给用户听", "category": "对话与表达",
+        "id": "sing_cover", "label": "唱歌给主人听", "category": "对话与表达",
         "intent_type": "主动关心", "proactive": True, "needs": "ai_cover",
         "phi": {"g_relation": 0.4, "g_self": 0.3},
         "requires": {}, "anchor": ["will", "recent", "revisit"], "enabled": True,

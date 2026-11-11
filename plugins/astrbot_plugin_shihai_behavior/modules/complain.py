@@ -1,11 +1,11 @@
-"""AstrBot 插件：小鱼告状
+"""AstrBot 插件：大肥鱼告状
 
-被欺负时，她会私聊用户告状。
+被欺负时，她会私聊主人告状。
 
 - LLM 工具通道（主路径）：模型判断对方在骂她、羞辱她、故意欺负她，
-  调用 qq_complain，插件把告状的话私聊发给用户。
+  调用 qq_complain，插件把告状的话私聊发给主人。
 - 斜杠指令通道（兜底）：管理员用 /告状 内容 手动触发一次。
-- 频控：同一个人有冷却时间，每天有总上限，避免刷屏打扰用户。
+- 频控：同一个人有冷却时间，每天有总上限，避免刷屏打扰主人。
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from .base import SuiteBase, to_int
 NAME = "astrbot_plugin_dafeiyu_complain"
 
 HELP_TEXT = """告状用法（平时直接跟她说话就行，不用指令）：
-/告状 <内容>  手动让她私聊用户告一次状（仅管理员）"""
+/告状 <内容>  手动让她私聊主人告一次状（仅管理员）"""
 
 
 class ComplainMixin(SuiteBase):
@@ -69,7 +69,7 @@ class ComplainMixin(SuiteBase):
         """解析 guardians，返回（显示称呼, 别名列表, 收件目标）。
 
         每项支持「称呼:QQ」「称呼:UMO」，称呼里可用 / 分隔多个叫法，
-        例如「爸爸/爹/老爸:小鱼:FriendMessage:123456」。
+        例如「爸爸/爹/老爸:大肥鱼:FriendMessage:123456」。
         """
         raw = self._complain_cfg("guardians", []) or []
         if isinstance(raw, str):
@@ -120,12 +120,12 @@ class ComplainMixin(SuiteBase):
         return None
 
     def _owner_aliases(self) -> list[str]:
-        raw = str(self._complain_cfg("owner_title", "用户") or "用户")
+        raw = str(self._complain_cfg("owner_title", "主人") or "主人")
         aliases = [one.strip() for one in re.split(r"[/|｜、]+", raw) if one.strip()]
-        return aliases or ["用户"]
+        return aliases or ["主人"]
 
     def _resolve_target(self, name: str) -> tuple[str, str] | None:
-        """先按家人名单找，再按用户的称呼兜底。
+        """先按家人名单找，再按主人的称呼兜底。
 
         有人把另一位家人只写进了 owner_umo / owner_qq，名单里没有，
         这时候「给妈带个话」也要能对上。
@@ -161,7 +161,7 @@ class ComplainMixin(SuiteBase):
             )
         owner = self._owner_target(event)
         if owner and self._target_qq(owner) != sender:
-            candidates.append((str(self._complain_cfg("owner_title", "用户") or "用户"), owner))
+            candidates.append((str(self._complain_cfg("owner_title", "主人") or "主人"), owner))
         candidates.extend(
             [
                 (display, target)
@@ -522,7 +522,7 @@ class ComplainMixin(SuiteBase):
     async def tool_complain(
         self, event: AstrMessageEvent, bully: str = "", words: str = "", who: str = ""
     ):
-        '''被欺负时私聊向用户告状。
+        '''被欺负时私聊向主人告状。
         有人骂你、羞辱你、人身攻击、故意让你难堪、说很过分的话时调用；正常的玩笑、亲昵的调侃、轻微的吐槽不要调用。
         调用前先看这个人的行为是不是真的让你难受，别为了撒娇滥用。告完状在聊天里可以委屈一下，但不要把私聊内容说出来。
 

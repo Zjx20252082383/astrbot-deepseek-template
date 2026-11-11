@@ -10,7 +10,7 @@
     "hint": "非空时，转发请求必须带上相同 token（Header X-Token、URL ?token= 或 body 里的 token 字段均可）。局域网内建议设一个，防止别人乱发请求冒充短信"
   },
   "owner_qid": {
-    "description": "用户 QQ 号",
+    "description": "主人 QQ 号",
     "type": "string",
     "hint": "快递信息主动私聊发给这个 QQ 号；留空则不上报"
   },
@@ -20,15 +20,15 @@
     "hint": "AstrBot 平台配置里的 id（WebUI「平台」页里的实例名）。"
   },
   "report_express": {
-    "description": "快递短信主动上报用户",
+    "description": "快递短信主动上报主人",
     "type": "bool",
     "default": true
   },
   "report_other": {
-    "description": "非快递短信也上报用户",
+    "description": "非快递短信也上报主人",
     "type": "bool",
     "default": false,
-    "hint": "开启后所有转发来的短信都会简短报给用户（可能打扰，慎开）"
+    "hint": "开启后所有转发来的短信都会简短报给主人（可能打扰，慎开）"
   },
   "forward_all": {
     "description": "存档所有短信（含非快递）",
