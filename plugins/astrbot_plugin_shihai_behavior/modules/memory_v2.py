@@ -364,15 +364,21 @@ class FactBank:
             self.save()
 
     def retrieve(self, query: str, top_n: int = FACT_TOP_N,
-                 min_score: float = 0.0) -> List[FactItem]:
+                 min_score: float = 0.0,
+                 use_dynamics: bool = True) -> List[FactItem]:
         """事实层检索：相关度优先，权重兜底；核心事实只在小名额里保留。
         min_score：召回门槛（低于门槛不进提示词，省 Token）。
-        imp 以乘性参与排序（与相关度耦合，不再是常数奖励）。"""
+        imp 以乘性参与排序（与相关度耦合，不再是常数奖励）。
+        use_dynamics=False 时退化为纯字面重合排序（消融 B/C 组对照）。"""
         q = grams(query)
 
         def score(it: FactItem) -> float:
             text = f"{it.subject}{it.predicate}{it.obj}"
             overlap = len(q & grams(text)) if q else 0
+            if not use_dynamics:
+                # 消融对照：去掉 weight / is_core / imp 全部动力学项，
+                # 只按字面重合排序 —— 等价于"普通 RAG"基线。
+                return overlap * 2.0
             # 乘性微调（0.8+0.2·imp）：未评分 0.8 折、评过"闲聊"(0.2) 0.84 折——
             # "没打分"不能比"判为闲聊"更惨；同时这是温和调制，不会把
             # MIN_*_SCORE 门槛悄悄收紧一截（0.6+0.4·imp 时事实门槛 0.30→w≥0.83）。
@@ -539,15 +545,20 @@ class EventBank:
             self.save()
 
     def retrieve(self, query: str, top_n: int = EVENT_TOP_N,
-                 min_score: float = 0.0) -> List[EventItem]:
+                 min_score: float = 0.0,
+                 use_dynamics: bool = True) -> List[EventItem]:
         """事件优先；只取 committed，pending 不拿去做表达。
         min_score：召回门槛（久远且无相关的旧事件不进提示词，省 Token）。
-        imp 以乘性参与排序（与相关度耦合，不再是常数奖励）。"""
+        imp 以乘性参与排序（与相关度耦合，不再是常数奖励）。
+        use_dynamics=False 时退化为纯字面重合排序（消融 B/C 组对照）。"""
         q = grams(query)
 
         def score(ev: EventItem) -> float:
             text = f"{ev.content} {' '.join(ev.edge_kw)}"
             overlap = len(q & grams(text)) if q else 0
+            if not use_dynamics:
+                # 消融对照：不含激活 a、不含 imp 调制，只留字面重合。
+                return overlap * 2.0
             # 乘性微调（0.8+0.2·imp），语义同 FactBank.retrieve：未评分不重罚。
             # a 系数 0.35：a 是 freeze_peak 冻结的峰值、只降不升，旧事件能长期
             # 靠 a=1.0 拿到 ~0.4 的底分，任何 query 都挤进 top_n。压低后
@@ -667,9 +678,13 @@ class MemoryV2:
 
     # ---- 检索：先更新激活，再由行为层决定是否拼 prompt ----
     def recall(self, query: str, fact_top_n: int = FACT_TOP_N,
-               event_top_n: int = EVENT_TOP_N) -> Tuple[List[FactItem], List[EventItem]]:
-        facts = self.facts.retrieve(query, fact_top_n, MIN_FACT_SCORE)
-        events = self.events.retrieve(query, event_top_n, MIN_EVENT_SCORE)
+               event_top_n: int = EVENT_TOP_N,
+               use_dynamics: bool = True
+               ) -> Tuple[List[FactItem], List[EventItem]]:
+        facts = self.facts.retrieve(
+            query, fact_top_n, MIN_FACT_SCORE, use_dynamics=use_dynamics)
+        events = self.events.retrieve(
+            query, event_top_n, MIN_EVENT_SCORE, use_dynamics=use_dynamics)
         # 批量 boost 后各落盘一次（注入钩子里逐条 save 会放大同步 IO）
         for it in facts:
             self.facts.boost(it.fact_id, 0.04, save=False)

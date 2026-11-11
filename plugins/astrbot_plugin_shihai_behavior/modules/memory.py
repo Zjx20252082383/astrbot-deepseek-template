@@ -40,6 +40,7 @@ from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.message_components import Plain
 
 from .base import SuiteBase, to_int
+from .query_classifier import needs_timeline
 from .memory_v2 import (
     EVENT_CONTENT_MAX, EVENT_TOP_N, FACT_TOP_N, TIMELINE_DAYS, MemoryV2, grams,
     is_degraded_content)
@@ -147,9 +148,83 @@ class MemoryMixin(SuiteBase):
                 logger.info("[memoryv2] 固结打分模型：未配置（回落会话默认，imp 可能全是一个值）")
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"[memoryv2] 固结模型自检失败: {exc}")
+        # 实验组自检：切组后必须能在启动日志里看到，否则会以为切了实际没切。
+        # a_none 组不注入记忆、不打注入日志，没有这一行就完全无法确认生效。
+        try:
+            raw_exp = None
+            cfg = getattr(self, "config", None)
+            if isinstance(cfg, dict):
+                raw_exp = cfg.get("experiment")
+            elif cfg is not None:
+                raw_exp = getattr(cfg, "get", lambda *_: None)("experiment")
+            exp = raw_exp if isinstance(raw_exp, dict) else {}
+            logger.info(
+                "[memoryv2][exp] 生效组=%s（experiment.enabled=%s，timeline_on_demand=%s）",
+                self._experiment_group(), bool(exp.get("enabled", False)),
+                self._timeline_on_demand())
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[memoryv2][exp] 组别自检失败: {exc}")
 
     def _memory_cfg(self, key: str, default: Any = None) -> Any:
         return self.cfg("memory", key, default)
+
+    def _timeline_on_demand(self) -> bool:
+        """时间线按需注入开关（默认关 = 保持原来的每轮都带）。
+
+        放在 memory.basic 里，与 fact_top_n 同层，读取方式与它们一致。
+        关掉时行为与改造前完全一致，回退只要把这一个开关改回 false。
+        """
+        try:
+            return bool(self._memory_cfg("timeline_on_demand", False))
+        except Exception:  # noqa: BLE001 - 读配置失败就退回旧行为
+            return False
+
+    # ==================== 消融实验分组（论文对照用） ====================
+
+    # 四组递进设计，每组只比上一组多一个变量，便于写进论文：
+    #   a_none             无记忆       —— 不注入任何记忆，纯人格 + 会话上下文
+    #   b_recall           纯语义召回   —— 只注入相关事实/事件，排序按字面重合（等价普通 RAG）
+    #   c_recall_timeline  召回 + 时序  —— 再加"这些天的片段"，补回日期维度
+    #   d_full             完整识海     —— 排序再叠加激活 a / 重要度 imp / weight 动力学
+    # 默认 d_full：不配 experiment 时行为与改造前完全一致。
+    EXPERIMENT_GROUPS = ("a_none", "b_recall", "c_recall_timeline", "d_full")
+
+    def _experiment_group(self) -> str:
+        """读实验组别；未开启实验或值非法时一律回落 d_full（保持线上行为）。
+
+        直接取 config["experiment"] 而不是走 self.cfg：cfg 在目标分组不存在时
+        会全表递归找同名键，可能命中 memory.basic.enabled 之类，把"没配实验"
+        误判成"实验已开启"。
+        """
+        try:
+            exp: dict[str, Any] = {}
+            config = getattr(self, "config", None)
+            if isinstance(config, dict):
+                raw_exp = config.get("experiment")
+                exp = raw_exp if isinstance(raw_exp, dict) else {}
+            elif config is not None:
+                raw_exp = getattr(config, "get", lambda *_: None)("experiment")
+                exp = raw_exp if isinstance(raw_exp, dict) else {}
+            else:
+                return "d_full"
+            if not bool(exp.get("enabled", False)):
+                return "d_full"
+            raw = str(exp.get("group", "d_full") or "d_full").strip()
+            if raw not in self.EXPERIMENT_GROUPS:
+                logger.warning(
+                    "[exp] 未知组别 %r，回落 d_full（可选：%s）",
+                    raw, " / ".join(self.EXPERIMENT_GROUPS))
+                return "d_full"
+            label = str(exp.get("label", "") or "").strip()
+            # 只在组别变化时打一次，避免每轮注入都刷同一条
+            if getattr(self, "_exp_logged", None) != raw:
+                self._exp_logged = raw
+                logger.info("[exp:%s] 实验分组=%s %s", raw, raw,
+                            label or "未标注批次")
+            return raw
+        except Exception as exc:  # noqa: BLE001 - 配置读失败不能打断对话
+            logger.warning(f"[exp] 读取实验分组失败，按 d_full 运行: {exc}")
+            return "d_full"
 
     # ==================== 写链路：观察消息 ====================
 
@@ -451,6 +526,12 @@ class MemoryMixin(SuiteBase):
             return
         if getattr(req, "_memory_injected", False):
             return
+        group = self._experiment_group()
+        if group == "a_none":
+            # 对照组：一个字的记忆都不给，只有人格和会话上下文。
+            req._exp_group = group
+            return
+        use_dynamics = group == "d_full"
         try:
             query = self._memory_text(event)
             # §12.5 注入预算：条数与单条字数可在插件配置 memory.* 里调（省 Token 旋钮）
@@ -459,9 +540,11 @@ class MemoryMixin(SuiteBase):
                 event_top_n = max(1, int(self._memory_cfg("event_top_n", EVENT_TOP_N)))
             except (TypeError, ValueError):
                 fact_top_n, event_top_n = FACT_TOP_N, EVENT_TOP_N
-            facts, events = self._memv2.recall(query, fact_top_n, event_top_n)
+            facts, events = self._memv2.recall(
+                query, fact_top_n, event_top_n, use_dynamics=use_dynamics)
             pairs = self._mem_format_recall(
-                facts, events, max(40, int(self._memory_cfg("event_content_max", EVENT_CONTENT_MAX))))
+                facts, events, max(40, int(self._memory_cfg("event_content_max", EVENT_CONTENT_MAX)))
+            )
             # 时间线（"日子"这一维）：近三天 / 近一周 / 近半月三档，每天一句。
             # 语义召回只有 event_top_n 个名额、且 a 高的老事件长期占位，光靠它
             # 她记不住"哪几天发生过什么"；所以时序单独一块，与相关性那一块
@@ -470,6 +553,19 @@ class MemoryMixin(SuiteBase):
                 tl_max = max(0, int(self._memory_cfg("timeline_max_lines", 8)))
             except (TypeError, ValueError):
                 tl_max = 8
+            # 消融：时序块只给 c/d 组；b 组是"纯召回"对照，必须不含它。
+            if group not in ("c_recall_timeline", "d_full"):
+                tl_max = 0
+            # 按需注入（timeline_on_demand，默认关）：用户这句里出现回溯表达
+            # 才带时间线。实测 190 条入站消息里含回溯词的仅 2 条（1.1%），其余
+            # 轮次这块只是背景噪声，还常被她当成话题讲出来——09:52 用户只发了
+            # 一个「?」，她回「昨天那事，昨天已经翻篇了」就是这个来源。
+            # 主动开口不经过这里（走 _generate → provider.text_chat），不受影响。
+            if tl_max and self._timeline_on_demand() and not needs_timeline(query):
+                tl_max = 0
+                logger.info(
+                    "[memoryv2][exp:%s] 时间线按需：本轮无回溯表达，跳过时序块（query=%r）",
+                    group, str(query or "")[:30])
             tl_seq: list[tuple[str, int, int]] = []
             if tl_max:
                 tl_seq = self._mem_timeline(tl_max)
@@ -530,9 +626,9 @@ class MemoryMixin(SuiteBase):
             tier_counts = [sum(1 for _t, i in tl_kept if i == k)
                            for k in range(len(TIMELINE_TIERS))]
             logger.info(
-                "[memoryv2] 注入记忆：相关 %d 行（事实 %d / 事件 %d）/ 时间线 %d 行"
+                "[memoryv2][exp:%s] 注入记忆：相关 %d 行（事实 %d / 事件 %d）/ 时间线 %d 行"
                 "（近三 %d · 近一周 %d · 近半月 %d，相关 %d 字 + 时序 %d 字）",
-                len(trimmed), len(facts), len(events), len(tl_lines),
+                group, len(trimmed), len(facts), len(events), len(tl_lines),
                 tier_counts[0], tier_counts[1], tier_counts[2], used, tl_used)
             parts: list[str] = []
             if trimmed:
@@ -552,6 +648,7 @@ class MemoryMixin(SuiteBase):
             try:
                 req._memory_injected = True
                 req._memory_texts = trimmed + tl_lines
+                req._exp_group = group
             except Exception:  # noqa: BLE001
                 pass
         except Exception as exc:  # noqa: BLE001 - 注入失败不能打断对话

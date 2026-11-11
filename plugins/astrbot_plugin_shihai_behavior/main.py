@@ -806,6 +806,16 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
             system += task + "\n"
         if chat:
             system += self.intent_instruction_proactive
+            if str(action.get("id", "")) == "promise_followup":
+                # 08:23 那次事故：约定是「到时候说声早安」，她却发成
+                # 「现在算到时候了没？」——把已经说好的事又推回去让对方确认，
+                # 听起来就是个空洞的招呼。约定到点了就直接做，别反问时机。
+                system += (
+                    "\n这条是答应过对方、到点该回访的事：如果当初约定的是一件"
+                    "具体动作（说早安、道晚安、提醒某件事、交付某样东西），"
+                    "现在就直接把它做出来，不要反问「到时候了没」「现在算不算」"
+                    "「你还记得吗」——那等于把已经说好的事又推回给对方确认。"
+                    "只有约定内容本身确实含糊、无法执行时，才允许问一句具体是哪件事。")
         else:
             system += ("只输出结果本身：不要引号、不要解释、不要提任何字段名或数值；"
                        "不要说自己被程序触发，也不要把用户做过的事写成你做的。")
@@ -834,6 +844,10 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
             return {"ok": False, "retry": True, "error": "模型返回为空"}
         if not await self.sender.send(text):
             return {"ok": False, "retry": False, "error": "聊天消息发送失败"}
+        # 主动开口也要入史：框架只在"正常回复"路径写回 history，主动消息绕过
+        # event.send（走 context.send_message），所以这句话在她的上下文里原本
+        # 不存在。下一轮她会以为"我没说过"，甚至把自己发的内容脑补成别的话。
+        await self._remember_self_line(self.sender.target, text, tag="主动开口")
         return {"ok": True, "kind": "text", "text": text}
 
     async def _proactive_post(self, action, anchor, state, pending) -> Dict[str, Any]:
@@ -871,6 +885,8 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
             return {"ok": False, "error": f"画图失败：{type(e).__name__} {e}"}
         if not await self.sender.send_image(path, "画好了，给你。"):
             return {"ok": False, "error": "图片发送失败"}
+        await self._remember_self_line(
+            self.sender.target, f"画好了，给你。（画面：{prompt}）", tag="主动发图")
         return {"ok": True, "kind": "draw", "text": prompt, "media": str(path)}
 
     async def _proactive_sing(self, action, anchor, state, pending) -> Dict[str, Any]:
@@ -947,6 +963,7 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
                 as_record=bool(self.config.get("send_as_record", False))):
             return {"ok": False, "error": "翻唱文件发送失败"}
         text = f"我唱了《{title}》给你听" + (f"：{reason}" if reason else "")
+        await self._remember_self_line(self.sender.target, text, tag="唱歌给你听")
         return {"ok": True, "kind": "sing", "text": text, "reason": reason,
                 "media": str(output)}
 

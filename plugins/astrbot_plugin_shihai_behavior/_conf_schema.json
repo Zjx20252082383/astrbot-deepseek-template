@@ -854,6 +854,12 @@
             "type": "int",
             "hint": "§12.5：每轮注入的记忆内容总字数上限（默认 240 字），超出直接截断；零相关时只注入核心事实",
             "default": 240
+          },
+          "timeline_on_demand": {
+            "description": "时间线按需注入",
+            "type": "bool",
+            "hint": "开启后只有用户这句话里出现回溯表达（昨天/上次/那天/还记得/说过…）才注入「这些天的片段」，其余轮次只给相关事实与事件。实测 190 条入站消息里含回溯词的只有 2 条（1.1%），绝大多数轮次的时间线只是背景噪声，还常被她当成话题说出来。默认关闭＝保持原来的每轮都带",
+            "default": false
           }
         }
       },
@@ -881,6 +887,37 @@
             "default": ""
           }
         }
+      }
+    }
+  },
+  "experiment": {
+    "description": "消融实验分组（论文对照）",
+    "type": "object",
+    "hint": "四组递进，每组只比上一组多一个变量：a_none 无记忆（纯人格+会话上下文）/ b_recall 纯语义召回（按字面重合排序，等价普通 RAG）/ c_recall_timeline 召回+时序（再补「这些天的片段」）/ d_full 完整识海（排序再叠加激活 a、重要度 imp、weight 动力学）。关闭 enabled 时一律按 d_full 运行，行为与改造前完全一致。",
+    "items": {
+      "enabled": {
+        "description": "启用实验分组",
+        "type": "bool",
+        "hint": "关=始终按 d_full 跑，不影响线上稳定性",
+        "default": false
+      },
+      "group": {
+        "description": "实验组别",
+        "type": "string",
+        "hint": "a_none 无记忆 / b_recall 纯语义召回 / c_recall_timeline 召回+时序 / d_full 完整识海",
+        "default": "d_full",
+        "options": [
+          "a_none",
+          "b_recall",
+          "c_recall_timeline",
+          "d_full"
+        ]
+      },
+      "label": {
+        "description": "批次备注",
+        "type": "string",
+        "hint": "写进日志，便于事后按批次切分对话数据（如「A组-第1周」）",
+        "default": ""
       }
     }
   },
