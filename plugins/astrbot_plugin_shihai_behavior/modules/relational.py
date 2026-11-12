@@ -51,8 +51,13 @@ KAPPA_R = 6.0           # 门控陡度
 WINDOW_SEC = 24 * 3600  # 互动率滑动窗（与 Hebbian near_window 一致）
 
 # 冷启动默认值（6.12.5：陌生号首次说话 R_o 取默认值，必须能报出来当协变量）
+# 分三档，避免把"第一次出现但其实是熟人"按陌生人处理（0.15→w=0.18→名额 2）：
+#   owner 会话 1.0（硬校验；门控本身恒等 1，这个值只进关系层记录与亲疏措辞）
+#   已知熟人  0.70（事实库里出现过该 owner 的对象，w=0.858 → 名额 ≈⌈0.86K⌉）
+#   其余     0.15（真陌生，w=0.182）
 R_DEFAULT = R_MIN
-R_DEFAULT_OWNER = 0.55
+R_DEFAULT_OWNER = 1.0
+R_DEFAULT_KNOWN = 0.70
 
 
 def sigmoid(x: float) -> float:
@@ -133,7 +138,58 @@ class RelationStore:
         self.items: Dict[str, Dict[str, Any]] = {}
         self.last_tick: float = 0.0
         self._last_save: float = 0.0
+        # 已知熟人集合（从事实库 owner 字段汇总，启动时由 memory.py 注入）。
+        # 只影响"缺行时给什么初值"，不改变已有行的 R。
+        self.known: set[str] = set()
         self._load()
+
+    def pin_owner(self) -> bool:
+        """把 owner 行的 R 钉到 R_DEFAULT_OWNER（老库是 0.55 的旧默认值）。
+
+        owner 的门控本来就恒等 1（式 6-21），这个 R 只进关系层记录与亲疏措辞；
+        钉值是为了让"主人=最熟"在状态文件里也自洽，不参与任何门控计算。
+        已经推进过（有 wins）的 owner 行不动，避免改写历史轨迹。
+        """
+        row = self.items.get("owner")
+        if not row:
+            self._row("owner")
+            return True
+        # 不看 wins：owner 的 R 不参与门控（式 6-21 恒等 1），旧库里的 0.55 只是
+        # 早期默认值残留，钉成 1.0 才不会在 state 文件里和常量自相矛盾。
+        try:
+            if abs(float(row.get("R", 0.0)) - R_DEFAULT_OWNER) < 1e-6:
+                return False
+        except (TypeError, ValueError):
+            pass
+        row["R"] = R_DEFAULT_OWNER
+        return True
+
+    def register_known(self, objs) -> int:
+        """登记已知熟人；返回本次被抬高初值的对象数。
+
+        判据是"事实库里出现过这个 owner"，而不是"聊过天"：有记忆 = 认识。
+        只在缺行、或行还是纯默认值（R==R_DEFAULT 且 24h 窗为空）时抬到
+        R_DEFAULT_KNOWN，绝不覆盖已经被动力学推进过的真实状态。
+        """
+        seeded = 0
+        for raw in (objs or ()):
+            obj = str(raw or "").strip()
+            if not obj or obj == "owner":
+                continue
+            self.known.add(obj)
+            row = self.items.get(obj)
+            if row is None:
+                self._row(obj)          # 走 _default_r，天然是熟人档
+                seeded += 1
+                continue
+            try:
+                quiet = not (row.get("wins") or [])
+                if quiet and abs(float(row.get("R", 0.0)) - R_DEFAULT) < 1e-6:
+                    row["R"] = R_DEFAULT_KNOWN
+                    seeded += 1
+            except (TypeError, ValueError):
+                continue
+        return seeded
 
     # ---------- 持久化 ----------
     def _load(self) -> None:
@@ -167,12 +223,19 @@ class RelationStore:
             pass
 
     # ---------- 内部 ----------
+    def _default_r(self, key: str) -> float:
+        if key == "owner":
+            return R_DEFAULT_OWNER
+        if key in self.known:
+            return R_DEFAULT_KNOWN
+        return R_DEFAULT
+
     def _row(self, obj: str) -> Dict[str, Any]:
         key = str(obj or "owner")
         row = self.items.get(key)
         if row is None:
             row = {
-                "R": R_DEFAULT_OWNER if key == "owner" else R_DEFAULT,
+                "R": self._default_r(key),
                 "wins": [],          # [[ts, valence], ...] 24h 窗
                 "c": 0,              # 未完成承诺
                 "last_ts": 0.0,      # 上次积分时刻

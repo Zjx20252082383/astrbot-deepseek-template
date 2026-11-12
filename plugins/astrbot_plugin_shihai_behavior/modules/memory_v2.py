@@ -149,6 +149,51 @@ def _persp_prefix(item) -> str:
     return label
 
 
+# ---------------------------------------------------------------------------
+# 冲突聚类：H1 的先决条件之一——先把"同一事实两种说法"排掉，否则错投率里会
+# 混进"记忆本身自相矛盾"这个混淆变量。
+#   cluster_key = owner | normalize_subject(subject) | predicate
+#   单值谓词（名字/生日/性别…）同键互斥，走 _apply_conflict 的权重博弈；
+#   多值谓词（喜欢/去过/会做…）不聚类，否则"喜欢猫"会把"喜欢狗"判成冲突，
+#   退化成"只记得最后一条"的新漂移。不在多值清单里的谓词默认按单值（宁错杀）。
+# ---------------------------------------------------------------------------
+_PREDICATE_MULTI = (
+    "喜欢", "爱", "讨厌", "兴趣", "爱好", "擅长", "会", "去过", "做过",
+    "玩过", "看过", "听过", "收藏", "拥有", "计划", "想要", "在学",
+)
+_SUBJECT_SELF_ALIAS = ("鑫鑫", "主人", "用户", "我", "自己", "小满")
+
+
+def predicate_cardinality(predicate: str) -> str:
+    """single（互斥，同键只留权重领先的一条）/ multi（可并存，不聚类）。"""
+    p = str(predicate or "").strip()
+    if not p:
+        return "single"
+    return "multi" if any(k in p for k in _PREDICATE_MULTI) else "single"
+
+
+def normalize_subject(subject: str, owner: str = "owner") -> str:
+    """把"鑫鑫/主人/用户/我"这类同一人的不同写法归一到 <self>。
+
+    非主人层（qq:/group:）的 subject 本身就是号码，原样小写保留；簇键里还带了
+    owner 前缀，所以"别人说我叫 X"不会被并进主人的那条簇。
+    """
+    s = str(subject or "").strip()
+    if str(owner or "owner") == "owner":
+        if s in _SUBJECT_SELF_ALIAS:
+            return "<self>"
+        return s.lower()
+    return s.lower()
+
+
+def cluster_key(subject: str, predicate: str, owner: str = "owner") -> Optional[str]:
+    """生成冲突簇键；多值谓词或空谓词返回 None（不参与互斥）。"""
+    p = str(predicate or "").strip()
+    if not p or predicate_cardinality(p) == "multi":
+        return None
+    return f"{str(owner or 'owner')}|{normalize_subject(subject, owner)}|{p}"
+
+
 def owner_label(owner: str) -> str:
     """注入行的归属前缀。owner 层不加前缀（默认就是鑫鑫/共同经历）。"""
     o = str(owner or "owner")
@@ -189,6 +234,13 @@ class FactItem:
     imp: float = 0.0              # LLM 自评重要度（0-1，一位小数）；0.0=尚未评分不调制
     recalls: int = 0              # 被重新想起的次数（复习效应：N 越大 S 越大，衰减越慢）
     last_recall_ts: int = 0       # 上一次算作"复习"的时间（防同一轮里连问三次刷分）
+    # 涉及对象（v6）：这条记忆是在跟谁说话时产生的 —— **落库时记下，不靠事后抽**。
+    # 它是结构字段、模型看不到 schema，所以不会污染记忆文本（与"往 content 塞前缀"相反）。
+    # 存量 461 条没有它（source_doc_id 都是 v1memory，查不出对话对象）→ 保持空，
+    # scope 默认 private：推不出的就不对外，比按 owner 推定成 shared 安全得多。
+    involved: List[str] = field(default_factory=list)
+    # 可见范围：private（默认，不对外）/ shared（对 involved 里的对象可见）/ public（公共知识）
+    scope: str = "private"
 
     def stability(self) -> float:
         """艾宾浩斯 S = (1+β·imp)·(1+β_N·N_recall)。
@@ -337,6 +389,22 @@ class FactBank:
         if save:
             self.save()
         return item.fact_id, True
+
+    def backfill_conflict_groups(self) -> int:
+        """给存量条目补冲突簇键（只写标签，不动权重、不触发博弈）。
+
+        存量 461 条都没有簇键；不补的话，新写的"生日"要等第二条新事实才成簇，
+        老的那条永远进不了博弈。补标签是幂等的：已有簇键的条目原样跳过。
+        """
+        n = 0
+        for it in self.items.values():
+            if it.conflict_group:
+                continue
+            key = cluster_key(it.subject, it.predicate, it.owner)
+            if key:
+                it.conflict_group = key
+                n += 1
+        return n
 
     def _find_similar(self, new: FactItem) -> Optional[FactItem]:
         key = f"{new.subject}|{new.predicate}|{new.obj}"
@@ -788,9 +856,24 @@ class MemoryV2:
         imp: Optional[float] = None,
         save: bool = True,
         owner: str = "owner",
+        involved: Optional[List[str]] = None,
+        scope: str = "",
     ) -> Tuple[str, bool]:
         owner = str(owner or "owner").strip() or "owner"
-        # 归属进哈希：owner 层沿用旧公式（与存量 458 条继续合并），
+        # involved 是"产生这条记忆时的对话对象"，落库即写、零成本、零 LLM。
+        # 没显式给就按 owner 推：owner 层=主人自己（可见），个人/群层=该对象。
+        if involved is None:
+            involved = [] if owner == "owner" else [owner]
+        involved = [str(x) for x in involved if str(x or "").strip()]
+        scope = str(scope or "").strip()
+        if scope not in ("private", "shared", "public"):
+            # 有对话对象 → 对这段对话可见；没有 → 默认不对外（推不出的不分享）
+            scope = "shared" if (involved or owner == "owner") else "private"
+        # 冲突簇键是 _apply_conflict 唯一缺的赋值方：此前只有消费端、没有生产端，
+        # 整段博弈逻辑一直是死代码。单值谓词在这里自动成簇，多值谓词不聚类。
+        if conflict_group is None:
+            conflict_group = cluster_key(subject, predicate, owner)
+        # 归属进哈希：owner 层沿用旧公式（与存量 461 条继续合并），
         # 个人/群层加前缀 —— 同一句话由不同人说出=两条，不会被互相读完。
         seed = f"{subject}|{predicate}|{obj}"
         if owner != "owner":
@@ -811,6 +894,8 @@ class MemoryV2:
             source_doc_id=source_doc_id,
             is_core=bool(is_core),
             imp=round(min(1.0, max(0.0, float(imp))), 1) if imp is not None else 0.0,
+            involved=involved,
+            scope=scope,
         )
         fid, added = self.facts.add(item, save=save)
         if not added and imp is not None:
