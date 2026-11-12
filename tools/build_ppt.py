@@ -17,10 +17,10 @@ from pptx.oxml.ns import qn
 from pptx.util import Inches, Pt
 from pptx.enum.dml import MSO_LINE_DASH_STYLE
 
-ROOT = Path(r"E:\Users\zjx\Desktop\deepseek接QQ小号")
-MEDIA = ROOT / "AstrBot_snowluma" / "paper" / "media"
-ASSETS = ROOT / "ppt_assets"
-OUT = ROOT / "AstrBot_snowluma" / "core" / "识海_深度项目调研汇报.pptx"
+ROOT = Path(__file__).resolve().parent.parent
+MEDIA = ROOT / "paper" / "media"
+ASSETS = ROOT / "core" / "assets" / "ppt"
+OUT = ROOT / "core" / "识海_深度项目调研汇报.pptx"
 
 # 配色
 BLUE = RGBColor(0x2F, 0x6F, 0xB0)

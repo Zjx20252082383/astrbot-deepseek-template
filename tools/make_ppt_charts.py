@@ -18,7 +18,7 @@ plt.rcParams["savefig.dpi"] = 150
 
 BLUE, ORANGE, GREEN, RED, PURPLE, GRAY = (
     "#2f6fb0", "#e8862e", "#3f9e57", "#c0392b", "#7d5ba6", "#9aa5b1")
-OUT = Path(r"E:\Users\zjx\Desktop\deepseek接QQ小号\ppt_assets")
+OUT = Path(__file__).resolve().parent.parent / "core" / "assets" / "ppt"
 OUT.mkdir(parents=True, exist_ok=True)
 
 

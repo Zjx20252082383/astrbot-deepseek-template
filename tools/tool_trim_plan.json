@@ -1,0 +1,138 @@
+{
+  "generated_at": "2026-11-11",
+  "baseline": {
+    "source_data": {
+      "api_definitions_total": 99,
+      "schema_total_chars": 40990,
+      "enum_total_chars": 11688,
+      "enum_ratio": 0.285,
+      "registered_tools_per_request": 75,
+      "tool_schema_chars_per_request": 36098,
+      "context_chars_per_request": 34573,
+      "sys_prompt_chars_initial": 2065
+    },
+    "baseline_token_usage": 43870,
+    "chars_per_token_used": 1.6,
+    "measurement_note": "工具 schema 为每轮固定发送，成本按字符数×1 计；调用次数只用于判断工具是否值得保留，不与字符数相乘"
+  },
+  "actions": [
+    {
+      "id": "A1",
+      "action": "delete_enum",
+      "tool": "uapi_misc_worldtime",
+      "param": "city",
+      "current_schema_chars": 8299,
+      "enum_chars": 8080,
+      "expected_schema_chars": 220,
+      "savings_chars": 8080,
+      "savings_token_pct": 0.115,
+      "risk": "none",
+      "reason": "enum 占 schema 97.4%（400+ 个 IANA 时区名）；description 已写明「填标准 IANA 时区名，如 Asia/Shanghai」，模型可照此填写",
+      "verification": "应用后调用一次世界时间查询 Asia/Tokyo，确认返回时间正确"
+    },
+    {
+      "id": "B1",
+      "action": "remove_tool",
+      "tool": "uapi_translate_text",
+      "current_schema_chars": 841,
+      "savings_chars": 841,
+      "duplicate_of": "uapi_ai_translate",
+      "reason": "与 uapi_ai_translate 参数结构完全相同（均仅一个目标语言参数 + 同一份 109 项语言枚举），后端不同（机器翻译 vs AI 翻译），保留 AI 版",
+      "verification": "确认 uapi_ai_translate 可正常翻译中英一段文字"
+    },
+    {
+      "id": "B2",
+      "action": "remove_tool",
+      "tool": "uapi_misc_holiday-calendar",
+      "current_schema_chars": 1135,
+      "savings_chars": 1135,
+      "call_count_observed": 0,
+      "reason": "零调用；节假日查询不属于该角色日常需求",
+      "verification": "确认无插件依赖该工具名（grep 引用）"
+    },
+    {
+      "id": "B3",
+      "action": "remove_tool",
+      "tool": "uapi_image_bing-daily",
+      "current_schema_chars": 653,
+      "savings_chars": 653,
+      "call_count_observed": 0,
+      "reason": "零调用；每日一图属于装饰性能力，与角色行为无关",
+      "verification": "确认无插件依赖该工具名（grep 引用）"
+    }
+  ],
+  "pending": [
+    {
+      "id": "C1",
+      "action": "remove_tool",
+      "tool": "web_search_tavily",
+      "current_schema_chars": 1409,
+      "call_count_observed": 0,
+      "savings_token_pct": 0.02,
+      "risk": "loses_fallback",
+      "reason": "备用搜索后端，主用 web_search_bocha；砍后少一层容灾",
+      "decision": "pending",
+      "decide_after": "观察 web_search_bocha 近一个月的失败率，以及失败时是「报错给用户」还是「静默不回应」"
+    }
+  ],
+  "low_priority": [
+    {
+      "tools": [
+        "clone_tts",
+        "qq_set_nickname",
+        "behavior_tune",
+        "task_ignore",
+        "uapi_misc_weather",
+        "list_installed_plugins",
+        "search_plugins",
+        "memory_recall",
+        "get_weather_meme"
+      ],
+      "observed_calls_range": "1-4 次",
+      "decision": "observe_two_weeks",
+      "reason": "低频长尾；其中 task_ignore / behavior_tune 属管理类、可能偶发需要，list_installed_plugins / search_plugins 为只读且字符很小",
+      "next_check": "两周后再看调用次数，仍为 0-2 次且无管理需求则整工具移除"
+    }
+  ],
+  "exclusions": [
+    {
+      "tool": "uapi_misc_hotboard",
+      "enum_chars": 528,
+      "call_count_observed": 106,
+      "reason": "选项边界类 enum（平台列表：抖音/微博/B站/知乎…），模型必须在这些平台间选择，删枚举会编造平台名"
+    },
+    {
+      "tool": "uapi_saying_random",
+      "enum_chars": 592,
+      "call_count_observed": 2,
+      "reason": "选项边界类 enum（风格枚举），工具实际依赖该选项",
+      "tool_decision": "low_priority",
+      "note": "enum 保留，但工具本身进入两周观察；若调用仍为 0-2 次可整体移除"
+    }
+  ],
+  "corrections": [
+    {
+      "item": "uninstall_plugin",
+      "original_assumption": "当前存在的插件管理安全风险，需排除",
+      "corrected": "已于 2026-10-31 15:17:49 移除，当前 75 个工具中不存在",
+      "evidence": "[2026-10-31 15:17:49] [Core] [INFO] [star.star_manager:821]: 移除了插件 astrbot_plugin_dafeiyu 的处理函数 uninstall_plugin (191)",
+      "impact": "此前统计的 2 次调用来自历史日志，非当前能力；安全风险不成立"
+    },
+    {
+      "item": "search_plugins / list_installed_plugins",
+      "original_assumption": "内置插件管理工具，属安全风险",
+      "corrected": "是 dafeiyu_core.py:1592 / :1609 的 @filter.llm_tool，只读（搜市场、列已装），无安装/卸载能力；安装仅走 /装插件 命令且有 _check_owner 校验",
+      "impact": "安全风险不成立；两工具合计约 300 余字符，砍之无收益"
+    }
+  ],
+  "summary": {
+    "savings_chars": 10709,
+    "savings_tokens": 6693,
+    "savings_pct_of_bill": 0.153,
+    "with_tavily": {
+      "savings_chars": 12118,
+      "savings_tokens": 7574,
+      "savings_pct_of_bill": 0.184
+    }
+  }
+}
