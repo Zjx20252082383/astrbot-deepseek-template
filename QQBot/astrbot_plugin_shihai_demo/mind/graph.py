@@ -63,6 +63,9 @@ _DIARY_RX = re.compile(r"^\s*20\d{2}\s*[-年/]")  # 日记体开头（语录里�
 DEICTIC_KEYWORDS = {"明天", "明早", "明晚", "明日", "今天", "今早", "今晚",
                     "昨晚", "昨天", "现在", "刚才", "待会", "等会儿", "等下"}
 
+# Keep the same limit when writing and restoring, so restarting loses no text.
+_NODE_CONTENT_LIMIT = 260
+
 _DIM_CN = {
     "happy": "开心", "sad": "难过", "angry": "生气",
     "fear": "害怕", "love": "依恋", "surprise": "惊讶",
@@ -129,7 +132,7 @@ class MemoryGraph:
                 e_tags = nd.get("E", {}) or {}
                 self.nodes[str(nid)] = {
                     "type": str(nd.get("type", "fact")),
-                    "content": str(nd.get("content", ""))[:120],
+                    "content": str(nd.get("content", ""))[:_NODE_CONTENT_LIMIT],
                     "a": clamp(float(nd.get("a", 0.0)), 0.0, 1.0),
                     "E": {d: clamp(float(e_tags.get(d, 0.0)), 0.0, 1.0)
                           for d in EMOTION_DIMS},
@@ -241,7 +244,7 @@ class MemoryGraph:
         if nd is None:
             self.nodes[nid] = {
                 "type": ntype,
-                "content": content[:260],
+                "content": content[:_NODE_CONTENT_LIMIT],
                 "a": 0.0,
                 "E": {d: clamp(float(s_ext.get(d, 0.0)), 0.0, 1.0)
                       for d in EMOTION_DIMS},
@@ -272,7 +275,14 @@ class MemoryGraph:
                            doc_id: str = "",
                            de_dt: float = 0.0,
                            peak_u: float = 0.0) -> str:
-        nid = f"{ntype}:{int(now * 1000)}"
+        base_id = f"{ntype}:{int(now * 1000)}"
+        nid = base_id
+        suffix = 1
+        # Distinct messages may arrive within one millisecond. Event deduplication
+        # is handled by the adapter; timestamp collisions must not merge events.
+        while nid in self.nodes:
+            nid = f"{base_id}:{suffix}"
+            suffix += 1
         self._upsert_node(nid, ntype, content, s_ext, now, sender)
         nd = self.nodes.get(nid)
         if nd is not None:

@@ -136,6 +136,7 @@ class DemoTests(unittest.IsolatedAsyncioTestCase):
         self.assertGreater(len(engine.graph.nodes), 0)
         self.assertIn("【意图包】", request.system_prompt)
         self.assertIn("【表达参数】", request.system_prompt)
+        self.assertTrue(request.system_prompt.startswith("原有系统提示"))
         self.assertTrue(request._shihai_demo_injected)
         self.assertEqual(request.prompt, event.message_str)
         self.assertFalse(self.log.errors)
@@ -179,6 +180,63 @@ class DemoTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(engine.graph.nodes), len(restored.graph.nodes))
         self.assertTrue(any("蓝莓" in node["content"] for node in restored.graph.nodes.values()))
         self.assertFalse(restarted.last_injected)
+
+    async def test_distinct_messages_in_same_millisecond_are_both_remembered(self):
+        messages = ["我的专业是计算机科学与技术。", "我最喜欢的运动是羽毛球。"]
+        for text in messages:
+            event = Event(text=text)
+            with patch("time.time", return_value=1800000000.123):
+                await self.plugin.inject_state(event, Request(text))
+        _, engine = self.plugin._get_engine(event)
+        events = [node["content"] for node in engine.graph.nodes.values()
+                  if node["type"] == "event"]
+        for text in messages:
+            self.assertTrue(any(text in content for content in events), text)
+
+        restarted = self.module.ShihaiDemo(object())
+        self.plugins.append(restarted)
+        _, restored = restarted._get_engine(event)
+        restored_events = [node["content"] for node in restored.graph.nodes.values()
+                           if node["type"] == "event"]
+        self.assertCountEqual(events, restored_events)
+
+    async def test_long_memory_keeps_tail_fact_after_restart(self):
+        text = "这是一段学习背景说明。" * 11 + "我的研究方向是计算机视觉。"
+        event = Event(text=text)
+        await self.plugin.inject_state(event, Request(text))
+        _, engine = self.plugin._get_engine(event)
+        before = {nid: node["content"] for nid, node in engine.graph.nodes.items()}
+        self.assertTrue(any("计算机视觉" in content for content in before.values()))
+
+        restarted = self.module.ShihaiDemo(object())
+        self.plugins.append(restarted)
+        _, restored = restarted._get_engine(event)
+        after = {nid: node["content"] for nid, node in restored.graph.nodes.items()}
+        self.assertEqual(before, after)
+        question = Event(text="我之前告诉过你，我的研究方向是什么？")
+        request = Request(question.message_str)
+        await restarted.inject_state(question, request)
+        self.assertIn("计算机视觉", request.system_prompt)
+
+    async def test_updated_preference_precedes_old_memory_after_other_topics(self):
+        texts = [
+            "我最喜欢的水果是蓝莓。",
+            "我现在最喜欢的水果改成草莓了，以后以草莓为准。",
+            "今天去操场跑了三圈。",
+            "下午在图书馆看完了小说。",
+            "周末计划去看一场电影。",
+            "我的机械键盘换了新的键帽。",
+            "我现在最喜欢什么水果？",
+        ]
+        for index, text in enumerate(texts):
+            event = Event(text=text)
+            request = Request(text)
+            with patch("time.time", return_value=1800000000.0 + index * 3600):
+                await self.plugin.inject_state(event, request)
+        memory = request.system_prompt.split("记得的事：", 1)[1].split("\n此刻情绪", 1)[0]
+        self.assertIn("草莓", memory)
+        self.assertIn("蓝莓", memory)
+        self.assertLess(memory.index("草莓"), memory.index("蓝莓"))
 
     async def test_status_command_reports_injection(self):
         event = Event(text="今天开心！")

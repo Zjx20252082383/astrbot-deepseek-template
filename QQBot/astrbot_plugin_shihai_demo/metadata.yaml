@@ -1,7 +1,7 @@
 name: astrbot_plugin_shihai_demo
 display_name: 识海 QQ 对话 Demo
 desc: 基于现有识海心智核，让情绪、人格和图谱记忆参与文字对话。
-version: "0.1.0"
+version: "0.1.1"
 author: 识海项目组
 repo: https://github.com/Zjx20252082383/astrbot-deepseek-template
 astrbot_version: ">=4.29.4,<5"
