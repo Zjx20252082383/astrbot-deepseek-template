@@ -23,6 +23,7 @@ import asyncio
 import hashlib
 import json
 import os
+import random
 import re
 import socket
 import time
@@ -153,6 +154,8 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
         # 当前焦点对象：{会话串: (对象词, 记录时刻)}，只给主人会话用
         self._focus: Dict[str, tuple[str, float]] = {}
         self._last_fire_emitted_at: float = 0.0
+        # 晨间简报：记住最后一次发过的日期，防同一早晨多轮重复发
+        self._brief_day: str = ""
         self._action_last_at: Dict[str, float] = {}
         # 同一出口的最小间隔：防止"每次都抽到同一种表达"（尤其画画/唱歌耗时）
         self.action_cooldown = max(60, int(self.config.get("action_cooldown_seconds", 1800)))
@@ -595,6 +598,42 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
         except Exception as e:  # noqa: BLE001 - 打断失败不能挡住新消息
             logger.warning(f"[识海行为] 取消旧回复失败: {type(e).__name__} {e}")
 
+    # ---------- 空文本事件（戳一戳）----------
+    # 戳一戳在 aiocqhttp 里被转成"只有 Poke 组件、没有文字"的消息事件：
+    # 它不触发 LLM，所以模型那边根本收不到，表现就是"她不理人"。
+    # 这里显式接住它，并只在熟人档以内回应（陌生号戳她一律不理）。
+    @filter.event_message_type(filter.EventMessageType.ALL)
+    async def poke_notice(self, event: AstrMessageEvent):
+        try:
+            sender = str(event.get_sender_id() or "")
+            text = str(getattr(event, "message_str", "") or "").strip()
+            comps: list[str] = []
+            try:
+                for c in (getattr(getattr(event, "message_obj", None), "message", None) or []):
+                    comps.append(type(c).__name__)
+            except Exception:  # noqa: BLE001
+                pass
+            poked = "Poke" in comps
+            if not poked:
+                if not text:
+                    logger.info("[inbox] 空文本事件 sender=%s comps=%s（不进 LLM）",
+                                sender, ",".join(comps) or "-")
+                return
+            if not sender or sender == str(self.bot_qid):
+                return
+            known = (sender == str(self.owner_qid)
+                     or ("qq:" + sender) in set(getattr(self, "_known_ids", set())))
+            logger.info("[inbox] 戳一戳 sender=%s 熟人=%s", sender, known)
+            if not known:
+                return  # 陌生号：不理，与 restricted 档一致
+            line = random.choice(
+                ("干嘛呀，戳我。", "在呢在呢，别戳了~", "戳一下就想让我说话？", "嗯？戳我做什么。")
+                if sender == str(self.owner_qid)
+                else ("嗯？有事就说呀。", "戳我做什么，我又不会疼。", "在的，怎么了？"))
+            yield event.plain_result(line)
+        except Exception as e:  # noqa: BLE001 - 戳一戳失败不能打断别的事
+            logger.warning(f"[inbox] 戳一戳处理失败: {type(e).__name__} {e}")
+
     # ---------- 生活任务：用户回执 ----------
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def task_observe(self, event: AstrMessageEvent):
@@ -633,6 +672,19 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
                 await self.memory_inject(event, req)
             except Exception as e:  # noqa: BLE001 - 记忆失败不能打断对话
                 logger.warning(f"[识海行为] 记忆注入调用失败: {type(e).__name__} {e}")
+            # E 组（自我状态分区）：非主人会话拿自己的 z_s + z_r，
+            # 不含主人的 G_active / fire_pending / last_decision。
+            if sender != self.owner_qid:
+                try:
+                    _grp = self._experiment_group()
+                except Exception:  # noqa: BLE001
+                    _grp = "d_full"
+                if _grp == "e_partitioned":
+                    _block = self._session_self_block(
+                        sender, str(getattr(event, "unified_msg_origin", "") or ""))
+                    if _block:
+                        req.prompt = str(req.prompt or "") + "\n\n" + _block
+                    return
             # 识海 z(t)/G_active/last_decision 是主人这一条自我的状态；
             # 别人的会话只走自己的上下文与长期记忆，不能看到主人的心智内容。
             if (sender != self.owner_qid
@@ -700,11 +752,27 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
             await self.memory_watch(state)
         except Exception as e:  # noqa: BLE001 - 记忆故障不能拖垮行为层
             logger.warning(f"[识海行为] 记忆v2推进失败: {type(e).__name__} {e}")
+        # 关系层 z_r(o)：与引擎同频 0.5h 步长积分（论文 6.10.4）
+        try:
+            self.memory_tick_relation()
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[识海行为] 关系层推进失败: {type(e).__name__} {e}")
         # 生活任务层：确定性即时通道，每轮先跑；不与念头阈值抢触发
         try:
             await self.task_engine.tick(time.time(), state)
         except Exception as e:  # noqa: BLE001 - 任务层故障不能拖垮行为层
             logger.warning(f"[识海行为] 任务层推进失败: {type(e).__name__} {e}")
+        # 承诺主动出口：到点的账自己冒出来（按时间被看见，不依赖相似度召回，
+        # 也不与念头阈值抢触发——两者是并行通道）
+        try:
+            await self._remind_commitments(state)
+        except Exception as e:  # noqa: BLE001 - 提醒故障不能拖垮行为层
+            logger.warning(f"[识海行为] 承诺提醒推进失败: {type(e).__name__} {e}")
+        # 晨间简报：一天一条，把当天还没做完的账一次说清（没内容就不打扰）
+        try:
+            await self._maybe_morning_brief()
+        except Exception as e:  # noqa: BLE001 - 简报故障不能拖垮行为层
+            logger.warning(f"[晨间简报] 推进失败: {type(e).__name__} {e}")
         pending = state.get("fire_pending") or {}
         if not pending:
             return
@@ -787,6 +855,179 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
         logger.info("[识海行为] 涌现行为「%s」（π=%.2f）已完成：%s",
                     action.get("label"), score,
                     text[:40] or outcome.get("media", ""))
+
+    async def _remind_commitments(self, state: Dict[str, Any],
+                                  max_n: int = 3) -> None:
+        """承诺主动出口：把即将到期/已到期的账，主动发给主人一次。
+
+        为什么复用本循环而不另起守护线程 + heapq：这个插件已经有一条 asyncio
+        定时循环（watcher_interval 秒/轮），跨线程发消息要走
+        run_coroutine_threadsafe，崩溃面比现在大；而这里每轮只扫一遍内存里的
+        dict（几十条，微秒级），不会空转烧 CPU。去重由 reminded_ts 承担，
+        所以多轮也只提醒一次。
+        """
+        ledger = getattr(self, "_commit", None)
+        if ledger is None:
+            return
+        try:
+            due = ledger.pending_reminders(time.time())
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[承诺] 取待提醒失败: {type(e).__name__} {e}")
+            return
+        if not due:
+            return
+        owner = str(getattr(self, "owner_qid", "") or "")
+        for item in due[: max(1, int(max_n))]:
+            try:
+                ledger.guard_owner_target(self.sender.target, owner)
+                msg = ledger.format_reminder(item)
+                ok = await self.sender.send(msg)
+                if not ok:
+                    logger.warning("[承诺] 提醒发送失败，下轮重试：%s", item.text[:30])
+                    continue
+                ledger.mark_reminded(item.cid)
+                try:  # 主动消息绕过 event 链路，不入史她会以为"我没说过"
+                    await self._remember_self_line(
+                        self.sender.target, msg, tag="承诺提醒")
+                except Exception:  # noqa: BLE001
+                    pass
+                logger.info("[承诺] 已主动提醒：%s（due=%s）",
+                            item.text[:30], item.due_text)
+            except PermissionError as e:
+                logger.error("[承诺] 拦截越界提醒：%s", e)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"[承诺] 单条提醒异常: {type(e).__name__} {e}")
+
+    # ---------- 晨间简报（一天一条，有内容才发） ----------
+
+    def _brief_state_path(self) -> str:
+        """简报去重标记的落点：plugin_data 下，不跟着插件目录走。"""
+        try:
+            from astrbot.core.utils.astrbot_path import get_astrbot_plugin_data_path
+            base = os.path.join(str(get_astrbot_plugin_data_path()), "shihai_behavior")
+        except Exception:  # noqa: BLE001 - 取不到就退到插件目录，别让简报整个失效
+            base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "brief_data")
+        try:
+            os.makedirs(base, exist_ok=True)
+        except OSError:
+            pass
+        return os.path.join(base, "brief_state.json")
+
+    def _brief_sent(self, day: str) -> bool:
+        try:
+            with open(self._brief_state_path(), encoding="utf-8") as fh:
+                data = json.load(fh)
+            return str((data or {}).get("day", "")) == day
+        except (OSError, ValueError, AttributeError, TypeError):
+            return False
+
+    def _brief_mark(self, day: str) -> None:
+        try:
+            with open(self._brief_state_path(), "w", encoding="utf-8") as fh:
+                json.dump({"day": day}, fh, ensure_ascii=False)
+        except OSError as e:
+            logger.warning(f"[晨间简报] 标记落盘失败: {e}")
+
+    async def _maybe_morning_brief(self, force: bool = False,
+                                   send: bool = True) -> str:
+        """晨间简报：到点一次，把当天还没做完的承诺列清楚。
+
+        两条取舍：
+        1) 只讲承诺账——这是唯一已经有真实数据、且"到点真的有用"的来源。
+           没有可说的就整条不发，不做"早安 + 天气"式的每天一条噪音。
+        2) 去重键是日期字符串，内存 + 落盘双份：内存挡同一早晨的多轮，
+           落盘挡"重启之后又发一遍"。
+        """
+        from datetime import datetime
+
+        cfg: Dict[str, Any] = {}
+        try:
+            raw = self.config.get("morning_brief")
+            cfg = raw if isinstance(raw, dict) else {}
+        except Exception:  # noqa: BLE001
+            cfg = {}
+        if not force and not bool(cfg.get("enabled", True)):
+            return ""
+        hour, minute = 7, 30
+        try:
+            hour = int(cfg.get("hour", 7) or 7)
+            minute = int(cfg.get("minute", 30) or 30)
+        except (TypeError, ValueError):
+            pass
+
+        now = datetime.now()
+        day = now.strftime("%Y-%m-%d")
+        if not force:
+            if now.hour * 60 + now.minute < hour * 60 + minute:
+                return ""
+            if now.hour >= 12:  # 中午之后不再补发，免得下午突然冒出"早安"
+                return ""
+            if self._brief_day == day or self._brief_sent(day):
+                self._brief_day = day
+                return ""
+
+        ledger = getattr(self, "_commit", None)
+        if ledger is None:
+            return ""
+        try:
+            rows = ledger.open_items("owner", time.time())
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[晨间简报] 取承诺失败: {type(e).__name__} {e}")
+            return ""
+        if not rows:
+            if not force:
+                self._brief_day = day  # 今天没账可催，不再重试
+            return ""
+
+        rows = sorted(rows, key=lambda x: (x.due_ts or float("inf")))
+        weekday = "一二三四五六日"[now.weekday()]
+        head = f"早。今天 {now.month} 月 {now.day} 号，周{weekday}。"
+        items: list[str] = []
+        for x in rows[:5]:
+            text = str(getattr(x, "text", "") or "").strip()
+            if not text:
+                continue
+            due_ts = float(getattr(x, "due_ts", 0) or 0)
+            if due_ts:
+                when = (str(getattr(x, "due_text", "") or "").strip()
+                        or time.strftime("%m-%d %H:%M", time.localtime(due_ts)))
+                items.append(f"- {text}（{when}）")
+            else:
+                items.append(f"- {text}")
+        if not items:
+            return ""
+        msg = (head + "\n你答应过、还没做完的：\n" + "\n".join(items)
+               + "\n我不催，到点我自己记着说一声。")
+
+        if not send:
+            return msg
+        try:
+            ledger.guard_owner_target(self.sender.target, self.owner_qid)
+            ok = await self.sender.send(msg)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[晨间简报] 发送异常: {type(e).__name__} {e}")
+            return ""
+        if not ok:
+            logger.warning("[晨间简报] 发送失败，下一轮重试")
+            return ""
+        self._brief_day = day
+        self._brief_mark(day)
+        try:  # 主动消息绕过 event 链路，不入史她会以为"我没说过"
+            await self._remember_self_line(self.sender.target, msg, tag="晨间简报")
+        except Exception:  # noqa: BLE001
+            pass
+        logger.info("[晨间简报] 已发送 %d 条（%s）", len(items), day)
+        return msg
+
+    @filter.command("晨报", alias={"晨间简报", "早报"})
+    async def cmd_morning_brief(self, event: AstrMessageEvent):
+        """手动看一眼今天的晨间简报。用法：/晨报"""
+        sid = str(getattr(event, "get_sender_id", lambda: "")() or "")
+        if str(self.owner_qid) and sid != str(self.owner_qid):
+            yield event.plain_result("这个只给鑫鑫看。")
+            return
+        text = await self._maybe_morning_brief(force=True, send=False)
+        yield event.plain_result(text or "今天没有要催你的账。")
 
     def _write_fired(self, sig: Dict[str, Any]):
         try:
@@ -1183,3 +1424,34 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
             lines.append(f"{when} {who}{tag}：{it.get('content', '')}")
         lines.append("（这些是当时的逐字原文，可直接引用；没列出的不要补编。）")
         return "\n".join(lines)
+
+    @filter.llm_tool("remember_commitment")
+    async def remember_commitment(self, event: AstrMessageEvent, text: str,
+                                  when: str = ""):
+        """把「他让你到点提醒他的事」记进承诺账簿，到点你自己主动提醒他。他说「帮我记着」「别忘了」「到时候提醒我」并带具体时间时用；「改天」「回头」这类含糊时间不要记。
+
+        Args:
+            text (str): 这件事本身，用他的原话，一句话；不要把时间再抄一遍
+            when (str): 时间原话，如「明天8点」「周三下午三点」「11月15日9点」
+        """
+        body = str(text or "").strip()
+        if not body:
+            return "要记的事还是空的，你先把事情说出来我再记。"
+        try:
+            tag = self._mem_owner_tag(
+                str(event.get_sender_id() or ""),
+                str(getattr(event, "unified_msg_origin", "") or ""))
+        except Exception:  # noqa: BLE001
+            tag = "owner"
+        ledger = getattr(self, "_commit", None)
+        if ledger is None:
+            return "账簿这会儿没打开，晚点再让我记。"
+        ok, msg = ledger.remember(
+            tag, body, str(when or "").strip(),
+            src=str(getattr(event, "unified_msg_origin", "") or ""))
+        if ok:
+            logger.info("[commit] 工具立账 tag=%s when=%s 内容=%.40s",
+                        tag, str(when or "").strip(), body)
+        else:
+            logger.info("[commit] 工具立账被拒：%s", msg)
+        return msg

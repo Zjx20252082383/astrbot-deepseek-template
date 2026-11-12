@@ -1430,6 +1430,93 @@ class ToolboxMixin(SuiteBase):
         self._hint_signature(req, text, mood)
         self._hint_feed(req, text, mood)
 
+    @filter.on_llm_request()
+    async def inject_now(self, event: AstrMessageEvent, req: Any):
+        """把当前时间写进系统提示尾部（约 30 字符），对所有会话生效。
+
+        uapi 的 misc.worldtime 已从 LLM 工具白名单摘掉（P0 瘦身，省 8,334 字符），
+        模型手上就没有真实时间了。日历时间本地就能拿到，没必要让模型调工具问一次；
+        贴在系统提示最末，前面保持不变，缓存前缀不受影响。
+        """
+        try:
+            if getattr(req, "_now_injected", False):
+                return
+            req._now_injected = True
+            wd = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")[
+                datetime.now().weekday()]
+            req.system_prompt = (req.system_prompt or "") \
+                + "\n\n当前时间：" + time.strftime("%Y-%m-%d %H:%M ") + wd
+        except Exception:  # noqa: BLE001 - 时间注入失败不打断对话
+            pass
+
+    # ------------------------------------------------------------------
+    # P1 静态核心集：只把"高频 / 无指令兜底 / 非隐私"的工具常驻给模型，
+    # 其余下放指令通道（翻唱、日记、说说、/uapi…），schema 随之下架。
+    # 名单来自 12 天 450 次真实调用统计 + 三条筛选（频次≥5、无兜底、隐私分级）。
+    # 摘掉的那批里能力型失败 = 0 次（无兜底的都留着了），隐私型 5 次属有意收紧。
+    # ------------------------------------------------------------------
+    CORE_TOOLS = frozenset((
+        # 高频（12 天 ≥5 次）
+        "cover_song_by_name", "get_hot_list", "uapi_misc_hotboard", "dafeiyu_sing",
+        "write_diary", "send_message_to_user", "shihai_recall", "cover_audio",
+        "add_sticker", "tune_cover_params", "send_voice", "share_webpage_snapshot",
+        "read_diary", "send_sticker", "shihai_inject_emotion", "qq_set_signature",
+        "web_search_bocha", "dafeiyu_draw", "create_future_task", "qq_list_feeds",
+        "dafeiyu_get_mood", "shihai_get_state",
+        # 低频但无任何指令兜底（摘了就是真丢能力）
+        "list_future_tasks", "delete_future_task", "behavior_list", "behavior_tune",
+        "clone_tts", "get_weather_meme", "poke", "task_ignore",
+        # 低频但属人设核心：记忆写入只在用户明说"记住"时才有指令兜底，
+        # 模型自发记事的路径全靠这个工具，摘了等于让"记性"退化。
+        "memory_remember",
+        # 原话回查：摘要只留结论（"他很难过"），留不住措辞与语气（"我不是她"）。
+        # 逐字原文归档在 transcript.db，这个工具是唯一的取回通道；摘掉之后
+        # 她只能答"大概"，那是能力缺失，不是性格。成本约 600 字符。
+        "recall_transcript",
+        # 承诺立账：账簿本身的主动出口不靠工具（看门狗到期发起），但"记下来"
+        # 这一步只能由她显式做。摘掉它，账簿永远是空的——提醒能力等于没有。
+        "remember_commitment",
+    ))
+
+    @staticmethod
+    def _tool_schema_chars(tool) -> int:
+        try:
+            return len(json.dumps(
+                {"name": getattr(tool, "name", ""),
+                 "description": getattr(tool, "description", ""),
+                 "parameters": getattr(tool, "parameters", {})},
+                ensure_ascii=False, default=str))
+        except Exception:  # noqa: BLE001
+            return 0
+
+    @filter.on_llm_request()
+    async def prune_tools(self, event: AstrMessageEvent, req: Any):
+        """按静态核心集裁掉本轮下发的工具，并报出实际省下的 schema 字符。
+
+        只动 req.func_tool（本轮下发的副本），不动注册表；被裁工具仍可走指令通道，
+        所以是"不进模型工具列表"，不是"删除能力"。失败就按全量下发。
+        """
+        try:
+            ts = getattr(req, "func_tool", None)
+            tools = getattr(ts, "tools", None)
+            if not tools or getattr(req, "_tools_pruned", False):
+                return
+            req._tools_pruned = True
+            chars = sum(self._tool_schema_chars(t) for t in tools)
+            drop = [t for t in tools if getattr(t, "name", "") not in self.CORE_TOOLS]
+            saved = sum(self._tool_schema_chars(t) for t in drop)
+            for t in drop:
+                try:
+                    ts.remove_tool(t.name)
+                except Exception:  # noqa: BLE001
+                    pass
+            left = len(getattr(ts, "tools", []))
+            pct = (100.0 * saved / chars) if chars else 0.0
+            logger.info("[p1] 工具常驻 %d→%d，schema %d→%d 字符（省 %d，%.1f%%）",
+                        len(tools), left, chars, chars - saved, saved, pct)
+        except Exception as exc:  # noqa: BLE001 - 裁剪失败就按全量下发
+            logger.warning(f"[p1] 工具裁剪失败: {type(exc).__name__} {exc}")
+
     def _hint_signature(self, req: Any, text: str, mood: str) -> None:
         if not self._toolbox_cfg("self_change_hint", True):
             return

@@ -186,6 +186,18 @@ class TranscriptStore:
                 "SELECT id FROM transcript WHERE content LIKE ?",
                 (f"%{kw}%",)).fetchall()
             ids.update(int(r[0]) for r in rows)
+            # 通道三：二元组兜底——整串零命中时才启用。
+            # 起因：FTS5 默认的 unicode61 不切中文，MATCH 只能撞到整段 token
+            # （实测 LIKE '%自己%' 命中 117 条、MATCH '自己' 只命中 2 条），
+            # 于是长词少一个字就搜不到——她记错措辞时会得到"一句原话都没
+            # 捞着"。这一步只在零命中时跑，避免短词把整个库都捞上来。
+            if not ids:
+                terms = [t for t in _bigrams(kw) if len(t) >= 2][:3]
+                for t in terms:
+                    rows = self._conn.execute(
+                        "SELECT id FROM transcript WHERE content LIKE ?",
+                        (f"%{t}%",)).fetchall()
+                    ids.update(int(r[0]) for r in rows)
 
             if not ids:
                 return []
@@ -193,8 +205,14 @@ class TranscriptStore:
                 ",".join("?" * len(ids)))
             args: list[Any] = list(ids)
             if origin:
-                sql += " AND origin=?"
-                args.append(origin)
+                # 会话定位按"类型 + 对方号"匹配，忽略平台前缀。
+                # 历史里同一段私聊的 origin 既有 napcat:… 又有 qq:…（换协议端后
+                # 前缀变了），精确匹配会让换端之前的所有原话都检索不到——
+                # 表现为"翻了一遍一句都没捞着"。
+                _o = str(origin)
+                _tail = _o.split(":", 1)[1] if ":" in _o else _o
+                sql += " AND (origin=? OR origin LIKE ?)"
+                args.extend([_o, "%:" + _tail])
             if since is not None:
                 sql += " AND ts>=?"
                 args.append(since)

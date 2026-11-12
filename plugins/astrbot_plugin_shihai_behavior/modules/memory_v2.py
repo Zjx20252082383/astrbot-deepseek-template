@@ -141,6 +141,26 @@ def grams(text: str) -> set[str]:
     return {clean[i:i + 2] for i in range(len(clean) - 1)}
 
 
+def _persp_prefix(item) -> str:
+    """注入行前缀：别人的事必须有对象标记（论文 6.11.2 第②层）。"""
+    label = owner_label(getattr(item, "owner", "owner"))
+    if (not label) and str(getattr(item, "perspective", "self") or "self") == "other":
+        return "[他人的事] "
+    return label
+
+
+def owner_label(owner: str) -> str:
+    """注入行的归属前缀。owner 层不加前缀（默认就是鑫鑫/共同经历）。"""
+    o = str(owner or "owner")
+    if o == "owner":
+        return ""
+    if o.startswith("qq:"):
+        return "[QQ%s] " % o[3:]
+    if o.startswith("group:"):
+        return "[群%s] " % o[6:]
+    return "[%s] " % o
+
+
 # ---------------------------------------------------------------------------
 # Schema
 # ---------------------------------------------------------------------------
@@ -150,6 +170,12 @@ class FactItem:
     subject: str
     predicate: str
     obj: str
+    # 归属层（v5）：owner=鑫鑫/全局层，qq:<号>=该号个人层，group:<群号>=群层。
+    # 存量条目没有这个字段时按 owner 载入 —— 老库继续当"鑫鑫的记忆"共享。
+    owner: str = "owner"
+    # 视角标记（论文 6.11.2 第②层）：self=自己的经历 / other=别人的事。
+    # other 条目注入时必须带对象前缀 [QQ…]，由 owner_label 负责。
+    perspective: str = "self"
     weight: float = 0.5
     decay_factor: float = 0.992
     expire_at: int = 0
@@ -198,6 +224,8 @@ class EventItem:
     frozen_at: int = 0
     ts: int = 0
     content: str = ""
+    owner: str = "owner"          # 归属层，口径同 FactItem
+    perspective: str = "self"     # 视角标记，口径同 FactItem
     a: float = 0.0
     decay_factor: float = 0.996
     expire_at: int = 0
@@ -313,6 +341,10 @@ class FactBank:
     def _find_similar(self, new: FactItem) -> Optional[FactItem]:
         key = f"{new.subject}|{new.predicate}|{new.obj}"
         for old in self.items.values():
+            # 归属不同的两条事实即使字面一样也不能合并，否则"别人说的"
+            # 会被并进鑫鑫那条，再被注入回主人的对话（认错人的根因之一）。
+            if str(old.owner) != str(new.owner):
+                continue
             old_key = f"{old.subject}|{old.predicate}|{old.obj}"
             if key == old_key:
                 return old
@@ -367,7 +399,8 @@ class FactBank:
 
     def retrieve(self, query: str, top_n: int = FACT_TOP_N,
                  min_score: float = 0.0,
-                 use_dynamics: bool = True) -> List[FactItem]:
+                 use_dynamics: bool = True,
+                 owners: Optional[List[str]] = None) -> List[FactItem]:
         """事实层检索：相关度优先，权重兜底；核心事实只在小名额里保留。
         min_score：召回门槛（低于门槛不进提示词，省 Token）。
         imp 以乘性参与排序（与相关度耦合，不再是常数奖励）。
@@ -387,7 +420,11 @@ class FactBank:
             base = overlap * 2.0 + it.weight * 0.6 + (0.15 if it.is_core else 0.0)
             return base * (0.8 + 0.2 * min(1.0, max(0.0, it.imp)))
 
-        rows = sorted(self.items.values(), key=score, reverse=True)[: max(1, top_n)]
+        pool = self.items.values()
+        if owners:
+            allow = set(str(o) for o in owners)
+            pool = [it for it in pool if str(it.owner) in allow]
+        rows = sorted(pool, key=score, reverse=True)[: max(1, top_n)]
         out = [it for it in rows if score(it) >= float(min_score)]
         # 复习效应（带两条防作弊）：核心实体重合 ≥2 个二元组、且距上次复习
         # 已过 24h，才让 S 涨一档。只动 recalls / last_recall_ts，不动 weight。
@@ -482,8 +519,12 @@ class EventBank:
         peak_u: float,
         e_t: float,
         doc_id: Optional[str] = None,
+        owner: str = "owner",
     ) -> str:
-        """阶段一：同步冻结峰值。不调 LLM，不等待任何异步结果。"""
+        """阶段一：同步冻结峰值。不调 LLM，不等待任何异步结果。
+
+        owner：这轮对话的归属层（owner=鑫鑫 / qq:<号> / group:<群>）。
+        冻结时就写死；注入时按会话取并集，避免把别人的事讲给鑫鑫听。"""
         node_id = f"event:{int(ts * 1000)}"
         old = self.items.get(node_id)
         if old is None:
@@ -497,6 +538,8 @@ class EventBank:
                 de_dt=float(de_dt),
                 peak_u=float(peak_u),
                 doc_id=doc_id,
+                owner=str(owner or "owner"),
+                perspective=("self" if str(owner or "owner") == "owner" else "other"),
                 last_update_ts=int(ts),
             )
             self.items[node_id] = old
@@ -506,6 +549,8 @@ class EventBank:
             old.a = max(old.a, float(e_t))
             if doc_id and not old.doc_id:
                 old.doc_id = doc_id
+            if not str(getattr(old, "owner", "") or ""):
+                old.owner = str(owner or "owner")
         self.save()
         return node_id
 
@@ -548,7 +593,8 @@ class EventBank:
 
     def retrieve(self, query: str, top_n: int = EVENT_TOP_N,
                  min_score: float = 0.0,
-                 use_dynamics: bool = True) -> List[EventItem]:
+                 use_dynamics: bool = True,
+                 owners: Optional[List[str]] = None) -> List[EventItem]:
         """事件优先；只取 committed，pending 不拿去做表达。
         min_score：召回门槛（久远且无相关的旧事件不进提示词，省 Token）。
         imp 以乘性参与排序（与相关度耦合，不再是常数奖励）。
@@ -568,8 +614,11 @@ class EventBank:
             base = overlap * 2.0 + ev.a * EVENT_A_WEIGHT + 0.10
             return base * (0.8 + 0.2 * min(1.0, max(0.0, ev.imp)))
 
-        rows = sorted((e for e in self.items.values() if e.status == "committed"),
-                      key=score, reverse=True)[: max(1, top_n)]
+        pool = [e for e in self.items.values() if e.status == "committed"]
+        if owners:
+            allow = set(str(o) for o in owners)
+            pool = [e for e in pool if str(e.owner) in allow]
+        rows = sorted(pool, key=score, reverse=True)[: max(1, top_n)]
         out = [ev for ev in rows if score(ev) >= float(min_score)]
         # 复习效应（同 FactBank：实体重合 ≥2 且跨过 24h 时间阀才算一次复习）
         now_ts = _now()
@@ -586,7 +635,8 @@ class EventBank:
         return out
 
     def timeline(self, days: int = TIMELINE_DAYS, per_day: int = 1,
-                 now_ts: Optional[int] = None) -> List[EventItem]:
+                 now_ts: Optional[int] = None,
+                 owners: Optional[List[str]] = None) -> List[EventItem]:
         """时间线兜底：最近 days 天，每天最多 per_day 条可注入事件。
 
         与 query 无关——补的是"日子"这一维，避免 event_top_n 被 a 高的
@@ -597,6 +647,8 @@ class EventBank:
         by_day: Dict[int, List[EventItem]] = {}
         for ev in self.items.values():
             if ev.status != "committed":
+                continue
+            if owners and str(ev.owner) not in set(str(o) for o in owners):
                 continue
             text = (ev.summary or "").strip()
             if not text:
@@ -644,13 +696,15 @@ class MemoryV2:
         ts: Optional[int] = None,
         doc_id: Optional[str] = None,
         force: bool = False,
+        owner: str = "owner",
     ) -> Optional[str]:
         """满足 |de/dt| 或 u 峰值时冻结；返回 pending node_id。"""
         if not force and abs(de_dt) < EPS_DE_DT and peak_u < U_PEAK_THRESH:
             return None
         ts = int(ts or _now())
         node_id = self.events.freeze_peak(
-            ts=ts, de_dt=de_dt, peak_u=peak_u, e_t=e_t, doc_id=doc_id
+            ts=ts, de_dt=de_dt, peak_u=peak_u, e_t=e_t, doc_id=doc_id,
+            owner=owner,
         )
         # 调用方在这里同步做：graph.add_pending_event(node_id, ...)
         # 以及情绪场强迫项 mind.add_memory_forcing(event_items)
@@ -681,12 +735,17 @@ class MemoryV2:
     # ---- 检索：先更新激活，再由行为层决定是否拼 prompt ----
     def recall(self, query: str, fact_top_n: int = FACT_TOP_N,
                event_top_n: int = EVENT_TOP_N,
-               use_dynamics: bool = True
+               use_dynamics: bool = True,
+               owners: Optional[List[str]] = None
                ) -> Tuple[List[FactItem], List[EventItem]]:
+        """owners：本会话可见的归属层（全局 owner + 当前个人/群层）。
+        传 None = 不过滤（自检脚本、老调用路径照旧全库）。"""
         facts = self.facts.retrieve(
-            query, fact_top_n, MIN_FACT_SCORE, use_dynamics=use_dynamics)
+            query, fact_top_n, MIN_FACT_SCORE, use_dynamics=use_dynamics,
+            owners=owners)
         events = self.events.retrieve(
-            query, event_top_n, MIN_EVENT_SCORE, use_dynamics=use_dynamics)
+            query, event_top_n, MIN_EVENT_SCORE, use_dynamics=use_dynamics,
+            owners=owners)
         # 批量 boost 后各落盘一次（注入钩子里逐条 save 会放大同步 IO）
         for it in facts:
             self.facts.boost(it.fact_id, 0.04, save=False)
@@ -699,13 +758,19 @@ class MemoryV2:
         return facts, events
 
     def prompt_block(self, facts: List[FactItem], events: List[EventItem]) -> str:
-        """只在行为层决定开口后调用；未调用则这些记忆不占 prompt token。"""
+        """只在行为层决定开口后调用；未调用则这些记忆不占 prompt token。
+
+        非 owner 层的行带 [QQ…] 前缀，说明"这是别人说的"，不是鑫鑫的经历。"""
         lines: List[str] = []
         for it in facts:
-            lines.append(f"- {it.subject}{it.predicate}：{it.obj}")
+            lines.append("%s- %s%s：%s" % (
+                _persp_prefix(it),
+                it.subject, it.predicate, it.obj))
         for ev in events:
             if ev.content:
-                lines.append(f"- {ev.content[:EVENT_CONTENT_MAX]}")
+                lines.append("%s- %s" % (
+                    _persp_prefix(ev),
+                    ev.content[:EVENT_CONTENT_MAX]))
         return "\n".join(lines)
 
     # ---- 冲突写入：供 EgoRegulator / GuardAuditor 调用 ----
@@ -722,15 +787,22 @@ class MemoryV2:
         is_core: bool = False,
         imp: Optional[float] = None,
         save: bool = True,
+        owner: str = "owner",
     ) -> Tuple[str, bool]:
-        fact_id = "fact:" + hashlib.sha1(
-            f"{subject}|{predicate}|{obj}".encode("utf-8")
-        ).hexdigest()[:16]
+        owner = str(owner or "owner").strip() or "owner"
+        # 归属进哈希：owner 层沿用旧公式（与存量 458 条继续合并），
+        # 个人/群层加前缀 —— 同一句话由不同人说出=两条，不会被互相读完。
+        seed = f"{subject}|{predicate}|{obj}"
+        if owner != "owner":
+            seed = f"{owner}|{seed}"
+        fact_id = "fact:" + hashlib.sha1(seed.encode("utf-8")).hexdigest()[:16]
         item = FactItem(
             fact_id=fact_id,
             subject=str(subject),
             predicate=str(predicate),
             obj=str(obj),
+            owner=owner,
+            perspective=("self" if owner == "owner" else "other"),
             weight=float(weight),
             decay_factor=0.998 if is_core else 0.992,
             last_update_ts=_now(),

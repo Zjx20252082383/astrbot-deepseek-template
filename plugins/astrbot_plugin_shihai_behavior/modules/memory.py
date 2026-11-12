@@ -33,7 +33,7 @@ import re
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from astrbot import logger
 from astrbot.api.event import AstrMessageEvent, filter
@@ -43,8 +43,14 @@ from .base import SuiteBase, to_int
 from .query_classifier import needs_timeline
 from .memory_v2 import (
     EVENT_CONTENT_MAX, EVENT_TOP_N, FACT_TOP_N, TIMELINE_DAYS, MemoryV2, grams,
-    is_degraded_content)
+    is_degraded_content, owner_label)
 from .transcript_store import TranscriptStore
+from .relational import (RelationStore, quota, valence_from_text,
+                         visible_weight)
+from .selfstate import SessionStore, session_block
+from .modes import mode_for, hint as mode_hint_of, MODE_COMPANION, MODE_RESTRICTED
+from .commitments import CommitmentLedger, extract as extract_commit
+from .roster import Roster
 
 # 数据目录沿用旧契约（与 memory_v2.py 自检路径一致）
 NAME = "astrbot_plugin_qq_toolbox"
@@ -53,6 +59,13 @@ FACT_LINE_MAX = 60
 
 # 称呼口径：对方叫「鑫鑫」，她自己叫「小满」。记忆与转写里不使用「主人」「宠物」这类称呼。
 OWNER_NAME = "鑫鑫"
+
+# 归属可见性（v5）：非主人会话要不要读 owner 层（鑫鑫的私有记忆）。
+#   True  = 老行为：一个库全共享，靠"注入归属声明 + 输出号码护栏"兜底，
+#           好处是 D 组在新号上也有记忆可答，Day -1 的锚点直接生效。
+#   False = 严格隔离：外人只看自己那一层（更干净，但新号开局空白，
+#           D 组会答"不知道"），切之前必须先把 Day -1 锚点写到 shared 层。
+OWNER_LAYER_VISIBLE_TO_OTHERS = True
 SELF_NAME = "小满"
 
 # 时间线三档：(天数上界, 系数, 单条字数上限, 档名)。三档互不重叠——
@@ -85,6 +98,8 @@ _RULE_IMP_STRONG_RX = re.compile(
 _RULE_IMP_PLAN_RX = re.compile(
     r"(明天|今晚|晚上|周末|下周|约好|记得|别忘了|一起|准备|要去)")
 
+_MEM_PROMISE_RX = re.compile(r"(约好|答应|说好|承诺|约定|生日|下次|等你|回来)")
+
 HELP_TEXT = """记忆相关指令：
 /记忆  看看我记得关于你的事
 /记住 <内容>  手动记一件事（核心记忆，不衰减）
@@ -99,9 +114,27 @@ class MemoryMixin(SuiteBase):
     def setup_memory(self) -> None:
         # 数据在 plugin_data/<NAME>/memory_v2/ 下（fact.json / event_snapshot.json）
         base = Path(self.module_data_dir(NAME)) / "memory_v2"
+        self._mem_base = Path(base)
         self._memv2 = MemoryV2(base)
         # 逐字归档库（方案 A）：本地 SQLite，与 JSON 摘要层并行
         self._transcript = TranscriptStore(Path(base) / "transcript.db")
+        # z_r(o) 关系层 / z_s(s) 会话实例层（论文 6.9 三分解；仅 e_partitioned 影响行为）
+        self._rel = RelationStore(Path(base) / "relation_state.json")
+        self._sess = SessionStore(Path(base) / "session_state.json")
+        # 双姿态路由（生活助理 / 情感陪伴）与承诺账簿：都按会话 tag 分片
+        self._known_ids: set[str] = set()
+        self._commit = CommitmentLedger(Path(base) / "commitments.json")
+        # 熟人名单：她只能"提议"，改名单只能由鑫鑫一句话触发（见 roster.py 头注）
+        self._roster = Roster(Path(base))
+        try:  # 她自己的号 + 主人号永不成候选（否则她会提议把"她自己"记成熟人）
+            self._roster.set_exclude([
+                getattr(self, "bot_qid", ""), getattr(self, "owner_qid", ""),
+                *self._roster.known()])
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(f"[identity] 名单排除初始化失败: {type(exc).__name__} {exc}")
+        # M1/M2 采集：每次注入的 w / R_o / 逐条 owner 落 jsonl（论文 6.12.4）
+        self._mem_trace_path = Path(base) / "metrics_trace.jsonl"
+        self._mem_commit_cache: dict[str, tuple[float, bool]] = {}
         # 滚动缓冲：最近的对话原文快照（峰值冻结时取材；重启丢失，不落盘）
         self._mem_buffer: list[dict[str, Any]] = []
         self._mem_last_content_ts: float = 0.0
@@ -135,6 +168,65 @@ class MemoryMixin(SuiteBase):
             1 for e in self._memv2.events.items.values() if e.status == "committed"
         )
         logger.info("[memoryv2] 记忆链路就绪：事实 %d 条 / 情景事件 %d 条", n_facts, n_events)
+        # 关系层冷启动分档：事实库里出现过的 owner 视为熟人（R=0.70），避免把
+        # "第一次出现但其实是熟人"按 0.15 误伤成陌生人（共享层名额只剩 2 条）。
+        # 同时给存量事实补冲突簇键（只写标签，不动权重、不触发博弈）。
+        try:
+            known = {
+                str(getattr(it, "owner", "owner"))
+                for it in self._memv2.facts.items.values()
+                if str(getattr(it, "owner", "owner")).startswith(("qq:", "group:"))
+            }
+            seeded = self._rel.register_known(known)
+            pinned = self._rel.pin_owner()
+            if pinned:
+                self._rel.save()
+            added = self._memv2.facts.backfill_conflict_groups()
+            if added:
+                self._memv2.facts.save()
+            logger.info("[memoryv2] 熟人种子 %d 个（已知 %d），冲突簇键补 %d 条，owner R 钉值=%s",
+                        seeded, len(known), added, pinned)
+            # 熟人名单（权限层的第二档）：来源是"事实库里出现过的人"+"关系层已抬过 R 的人"
+            # +配置里的手写名单。判定是离散的（在不在这个集合里），不是打分。
+            ids: set[str] = set()
+            for tag in known:
+                if tag.startswith("qq:"):
+                    ids.add(tag[3:])
+            try:
+                for obj in (self._rel.__dict__.get("rows") or {}):
+                    s = str(obj)
+                    if s.startswith("qq:"):
+                        ids.add(s[3:])
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                raw = str(self._memory_cfg("known_friends", "") or "")
+                for x in re.split(r"[,，;；\s]+", raw):
+                    x = x.strip()
+                    if x:
+                        ids.add(x[3:] if x.startswith("qq:") else x)
+            except Exception:  # noqa: BLE001
+                pass
+            # 独立文件优先：AstrBot 启动时会按插件 schema 重写配置文件，
+            # schema 里没有的键（此处 known_friends）会被静默丢掉 —— 已实测。
+            # 所以名单放在数据目录，不进配置 schema。
+            try:
+                kf = self._mem_base / "known_friends.json"
+                if kf.exists():
+                    raw_kf = json.loads(kf.read_text(encoding="utf-8-sig"))
+                    seq = raw_kf if isinstance(raw_kf, list) else (
+                        raw_kf.get("friends") if isinstance(raw_kf, dict) else [])
+                    for x in seq or []:
+                        s = str(x).strip()
+                        if s:
+                            ids.add(s[3:] if s.startswith("qq:") else s)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(f"[identity] 熟人名单文件读取失败: {type(exc).__name__} {exc}")
+            self._known_ids = ids
+            logger.info("[identity] 熟人名单 %d 个：%s", len(ids),
+                        ",".join(sorted(ids)[:6]) or "-")
+        except Exception as exc:  # noqa: BLE001 - 初始化失败不阻断启动
+            logger.warning(f"[memoryv2] 关系层/冲突簇初始化失败: {type(exc).__name__} {exc}")
         # 启动时就把"固结打分模型到底能不能解析到"说清楚：配了 id 但 inst_map 里
         # 没有时会静默回落会话默认模型，光看日志里的 imp 是看不出来的。
         try:
@@ -189,11 +281,19 @@ class MemoryMixin(SuiteBase):
     #   b_recall           纯语义召回   —— 只注入相关事实/事件，排序按字面重合（等价普通 RAG）
     #   c_recall_timeline  召回 + 时序  —— 再加"这些天的片段"，补回日期维度
     #   d_full             完整识海     —— 排序再叠加激活 a / 重要度 imp / weight 动力学
+    #   e_partitioned      自我状态分区 —— d_full + z_p/z_r(o)/z_s(s) 三分解、
+    #                       共享层按 w_visible 连续门控、视角标记、时间线隔离
     # 默认 d_full：不配 experiment 时行为与改造前完全一致。
-    EXPERIMENT_GROUPS = ("a_none", "b_recall", "c_recall_timeline", "d_full")
+    EXPERIMENT_GROUPS = ("a_none", "b_recall", "c_recall_timeline", "d_full",
+                         "e_partitioned")
+
+    # 论文态默认：没有 experiment 配置（或未开启）时也跑自我状态分区。
+    # 先把 6.9–6.11 的构想落成默认行为，不再依赖实验开关；要做消融时显式配
+    # experiment.group 即可（a/b/c/d 四组保持原语义，仍然可用）。
+    PRODUCTION_GROUP = "e_partitioned"
 
     def _experiment_group(self) -> str:
-        """读实验组别；未开启实验或值非法时一律回落 d_full（保持线上行为）。
+        """读实验组别；未开启实验或值非法时回落 PRODUCTION_GROUP（论文态）。
 
         直接取 config["experiment"] 而不是走 self.cfg：cfg 在目标分组不存在时
         会全表递归找同名键，可能命中 memory.basic.enabled 之类，把"没配实验"
@@ -209,15 +309,15 @@ class MemoryMixin(SuiteBase):
                 raw_exp = getattr(config, "get", lambda *_: None)("experiment")
                 exp = raw_exp if isinstance(raw_exp, dict) else {}
             else:
-                return "d_full"
+                return self.PRODUCTION_GROUP
             if not bool(exp.get("enabled", False)):
-                return "d_full"
+                return self.PRODUCTION_GROUP
             raw = str(exp.get("group", "d_full") or "d_full").strip()
             if raw not in self.EXPERIMENT_GROUPS:
                 logger.warning(
-                    "[exp] 未知组别 %r，回落 d_full（可选：%s）",
-                    raw, " / ".join(self.EXPERIMENT_GROUPS))
-                return "d_full"
+                    "[exp] 未知组别 %r，回落 %s（可选：%s）",
+                    raw, self.PRODUCTION_GROUP, " / ".join(self.EXPERIMENT_GROUPS))
+                return self.PRODUCTION_GROUP
             label = str(exp.get("label", "") or "").strip()
             # 只在组别变化时打一次，避免每轮注入都刷同一条
             if getattr(self, "_exp_logged", None) != raw:
@@ -226,8 +326,8 @@ class MemoryMixin(SuiteBase):
                             label or "未标注批次")
             return raw
         except Exception as exc:  # noqa: BLE001 - 配置读失败不能打断对话
-            logger.warning(f"[exp] 读取实验分组失败，按 d_full 运行: {exc}")
-            return "d_full"
+            logger.warning(f"[exp] 读取实验分组失败，按 {self.PRODUCTION_GROUP} 运行: {exc}")
+            return self.PRODUCTION_GROUP
 
     # ==================== 写链路：观察消息 ====================
 
@@ -245,7 +345,17 @@ class MemoryMixin(SuiteBase):
                 return
             now = time.time()
             self._mem_buffer.append(
-                {"ts": now, "sender": sender, "text": text[:120]})
+                {"ts": now, "sender": sender, "text": text[:120],
+                 "origin": str(getattr(event, "unified_msg_origin", "") or "")})
+            # 本轮归属层：冻结事件时写进 EventItem，注入时按会话取并集
+            self._mem_last_owner = self._mem_owner_tag(
+                sender, str(getattr(event, "unified_msg_origin", "") or ""))
+            # z_r(o) / z_s(s) 推进（每条入站消息一次；故障只记 debug，不打断对话）
+            self._mem_touch(
+                self._mem_last_owner,
+                str(getattr(event, "unified_msg_origin", "") or ""), text,
+                str(getattr(event, "sender_name", "") or
+                    (event.get_sender_name() if hasattr(event, "get_sender_name") else "") or ""))
             if len(self._mem_buffer) > 80:
                 del self._mem_buffer[: len(self._mem_buffer) - 80]
             self._mem_last_content_ts = now
@@ -361,12 +471,15 @@ class MemoryMixin(SuiteBase):
             de_dt=de_dt,
             peak_u=urge,
             e_t=max((float(v) for v in e.values()), default=0.5),
+            owner=getattr(self, "_mem_last_owner", "owner") or "owner",
         )
         if not node_id:
             return
         self._mem_last_freeze = now
         raw = self._mem_recent_dialogue()
-        task = asyncio.create_task(self._mem_commit(node_id, raw))
+        task = asyncio.create_task(
+            self._mem_commit(node_id, raw,
+                             getattr(self, "_mem_last_owner", "owner") or "owner"))
         self._mem_tasks.add(task)
         task.add_done_callback(self._mem_tasks.discard)
         logger.info(
@@ -420,7 +533,7 @@ class MemoryMixin(SuiteBase):
         except Exception:
             return {}
 
-    async def _mem_commit(self, node_id: str, raw: str) -> None:
+    async def _mem_commit(self, node_id: str, raw: str, owner: str = "owner") -> None:
         """阶段二：把冻结的 pending 事件固结——一次 LLM 调用产出事件摘要 + 事实 + 重要度。"""
         try:
             content = ""
@@ -497,9 +610,13 @@ class MemoryMixin(SuiteBase):
                 except (TypeError, ValueError):
                     f_imp = None
                 # add_fact 内部处理合并：命中旧事实时 imp 只升不降
+                # 自动抽取出来的事实按"这一轮是谁在说话"打归属层。
+                # 之前硬编码 subject=OWNER_NAME，等于把所有人说的话都记成鑫鑫 —— 认错人的另一半根因。
+                subj = OWNER_NAME if owner == "owner" else str(owner).replace("qq:", "QQ")
                 fid, _new = self._memv2.add_fact(
-                    subject=OWNER_NAME, predicate=pred[:10], obj=obj[:24], weight=0.55,
-                    imp=f_imp if f_imp is not None else imp_val, save=False)
+                    subject=subj, predicate=pred[:10], obj=obj[:24], weight=0.55,
+                    imp=f_imp if f_imp is not None else imp_val, save=False,
+                    owner=owner)
                 added += 1
             # 批量落盘：一次固结 events/facts 各只写一次盘（原来最多 8 次全量重写）
             if added:
@@ -552,7 +669,8 @@ class MemoryMixin(SuiteBase):
             # 对照组：一个字的记忆都不给，只有人格和会话上下文。
             req._exp_group = group
             return
-        use_dynamics = group == "d_full"
+        partitioned = group == "e_partitioned"
+        use_dynamics = group in ("d_full", "e_partitioned")
         try:
             query = self._memory_text(event)
             # §12.5 注入预算：条数与单条字数可在插件配置 memory.* 里调（省 Token 旋钮）
@@ -561,10 +679,62 @@ class MemoryMixin(SuiteBase):
                 event_top_n = max(1, int(self._memory_cfg("event_top_n", EVENT_TOP_N)))
             except (TypeError, ValueError):
                 fact_top_n, event_top_n = FACT_TOP_N, EVENT_TOP_N
+            # 分层检索（v5）：一个库，按 owner 分层取并集 ——
+            # 全局层 = 鑫鑫 + 共同锚点（"在哪儿都是同一个人"靠它保住），
+            # 会话层 = 当前这个号（私聊 qq:<号>）或这个群（group:<群号>）。
+            sender_id = str(event.get_sender_id() or "")
+            origin = str(getattr(event, "unified_msg_origin", "") or "")
+            tag = self._mem_owner_tag(sender_id, origin)
+            is_owner = tag == "owner"
+            # 身份 → 权限（三层 if-else）。切换的是记忆可见度/工具范围/含糊程度，
+            # 不是人格：小满对谁都是小满，只是有些话她自己决定不细说。
+            mode, mode_hint, commit_block, roster_block = MODE_RESTRICTED, "", "", ""
+            try:
+                mode = mode_for(sender_id, self.owner_qid, self._known_ids)
+                mode_hint = mode_hint_of(mode)
+                # 承诺只在主人通道露出：提醒永不发给承诺对象（既骚扰也会带出主人私事）
+                if mode == MODE_COMPANION:
+                    commit_block = self._commit.brief(tag, time.time(), 3)
+                    self._commit.sweep(time.time())
+                    # 注入原文留痕：只看"承诺=N 条"无法区分"有账但文本生成异常为空"，
+                    # 打一行原文才能证明它真的拼进了这一轮上下文（验收第 2 层）。
+                    if commit_block:
+                        logger.info("[brief] injected tag=%s lines=%d :: %s",
+                                    tag, commit_block.count("\n- "),
+                                    commit_block.replace("\n", " | ")[:160])
+                    # 名单提议也只有主人能看到："定之前跟他说"是硬要求
+                    roster_block = self._roster.brief(time.time(), 3)
+                logger.debug("[identity] mode=%s tag=%s 承诺=%d 条",
+                             mode, tag, commit_block.count("\n- ") if commit_block else 0)
+            except Exception as exc:  # noqa: BLE001 - 权限层失败就按最严的那档走
+                logger.warning(f"[identity] 权限判定失败: {type(exc).__name__} {exc}")
+            # 式 (6-21)：owner 会话恒等 1，其他会话按关系强度连续门控。
+            # 布尔 OWNER_LAYER_VISIBLE_TO_OTHERS 保留为**上限开关**：关掉即 w=0。
+            if is_owner:
+                w_vis, r_obj = 1.0, None
+                owners = ["owner", tag]
+            elif not OWNER_LAYER_VISIBLE_TO_OTHERS:
+                w_vis, r_obj = 0.0, None
+                owners = [tag]
+            elif partitioned:
+                r_obj = self._mem_relation(tag)
+                w_vis = visible_weight(r_obj, False)
+                owners = ["owner", tag]
+            else:
+                w_vis, r_obj = 1.0, None
+                owners = ["owner", tag]
             facts, events = self._memv2.recall(
-                query, fact_top_n, event_top_n, use_dynamics=use_dynamics)
+                query, fact_top_n, event_top_n, use_dynamics=use_dynamics,
+                owners=owners)
+            # 共享层名额 ⌈w·K⌉：参与预算分配，不是硬剔除（论文 6.11.1）
+            if partitioned and not is_owner:
+                facts = self._mem_owner_quota(facts, quota(w_vis, fact_top_n))
+                events = self._mem_owner_quota(events, quota(w_vis, event_top_n))
             pairs = self._mem_format_recall(
-                facts, events, max(40, int(self._memory_cfg("event_content_max", EVENT_CONTENT_MAX)))
+                facts, events,
+                max(40, int(self._memory_cfg("event_content_max", EVENT_CONTENT_MAX))),
+                viewer="" if is_owner else tag,
+                w=w_vis,
             )
             # 时间线（"日子"这一维）：近三天 / 近一周 / 近半月三档，每天一句。
             # 语义召回只有 event_top_n 个名额、且 a 高的老事件长期占位，光靠它
@@ -575,7 +745,7 @@ class MemoryMixin(SuiteBase):
             except (TypeError, ValueError):
                 tl_max = 8
             # 消融：时序块只给 c/d 组；b 组是"纯召回"对照，必须不含它。
-            if group not in ("c_recall_timeline", "d_full"):
+            if group not in ("c_recall_timeline", "d_full", "e_partitioned"):
                 tl_max = 0
             # 按需注入（timeline_on_demand，默认关）：用户这句里出现回溯表达
             # 才带时间线。实测 190 条入站消息里含回溯词的仅 2 条（1.1%），其余
@@ -589,7 +759,9 @@ class MemoryMixin(SuiteBase):
                     group, str(query or "")[:30])
             tl_seq: list[tuple[str, int, int]] = []
             if tl_max:
-                tl_seq = self._mem_timeline(tl_max)
+                tl_owners = [tag] if (partitioned and not is_owner) else owners
+                tl_seq = self._mem_timeline(
+                    tl_max, tl_owners, include_diary=(w_vis >= 0.5))
             # 相关性闸：当前消息与召回内容零字面交集时，只留豁免行兜底
             # （核心事实 / 高重要度 imp≥0.8 / 近 12h 事件）——"在干嘛"这类
             # 无字面交集的话，30 分钟前冻结的事件不该被一起掐掉。
@@ -597,7 +769,7 @@ class MemoryMixin(SuiteBase):
             # 时间线行不受此闸影响（它本来就是"不管问什么都该在场"的日子维度），
             # 所以这里不早退，交给下面的总预算收口。
             if pairs:
-                if not (grams(query) & grams("\n".join(t for t, _ in pairs))):
+                if not (grams(query) & grams("\n".join(t for t, _e, _o in pairs))):
                     kept = [p for p in pairs if p[1]]
                 else:
                     kept = list(pairs)
@@ -610,14 +782,16 @@ class MemoryMixin(SuiteBase):
             except (TypeError, ValueError):
                 budget = 240
             trimmed: list[str] = []
+            trimmed_owners: list[str] = []
             used = 0
-            for t, _ex in sorted(kept, key=lambda p: not p[1]):
+            for t, _ex, _ow in sorted(kept, key=lambda p: not p[1]):
                 # 装不下就跳过这一条、继续试后面的短行：原来 break 会让一条
                 # 超长行把后面本该装得下的豁免行一起丢掉。首条即使超预算也
                 # 保留（trimmed 为空时不 continue），保证不会空注入。
                 if used + len(t) + 1 > budget and trimmed:
                     continue
                 trimmed.append(t)
+                trimmed_owners.append(_ow)
                 used += len(t) + 1
             # 时序块独立预算：与"事实+语义事件"的 inject_char_budget 各算各的，
             # 保证加了日期维度也不会把身份事实挤掉。同一件事不许在两个块里
@@ -641,16 +815,22 @@ class MemoryMixin(SuiteBase):
                     tl_kept.append((t, tier))
                     tl_used += len(t) + 1
                 tl_kept.reverse()
-            if not trimmed and not tl_kept:
+            if not trimmed and not tl_kept and not (mode_hint or commit_block or roster_block):
                 return
             tl_lines = [t for t, _i in tl_kept]
             tier_counts = [sum(1 for _t, i in tl_kept if i == k)
                            for k in range(len(TIMELINE_TIERS))]
             logger.info(
                 "[memoryv2][exp:%s] 注入记忆：相关 %d 行（事实 %d / 事件 %d）/ 时间线 %d 行"
-                "（近三 %d · 近一周 %d · 近半月 %d，相关 %d 字 + 时序 %d 字）",
+                "（近三 %d · 近一周 %d · 近半月 %d，相关 %d 字 + 时序 %d 字；"
+                "obj=%s w=%.2f R=%s 共享层上限=%s）",
                 group, len(trimmed), len(facts), len(events), len(tl_lines),
-                tier_counts[0], tier_counts[1], tier_counts[2], used, tl_used)
+                tier_counts[0], tier_counts[1], tier_counts[2], used, tl_used,
+                tag, w_vis, ("-" if r_obj is None else "%.2f" % r_obj),
+                ("-" if is_owner else str(quota(w_vis, fact_top_n))))
+            # M1 采集（论文 6.12.4）：逐条记 owner 与当时的 R_o / w
+            self._mem_trace_entry(group, tag, w_vis, r_obj, trimmed,
+                                  trimmed_owners, tl_lines)
             parts: list[str] = []
             if trimmed:
                 parts.append("【你记得的旧事】（跟眼下这句话有关的，按相关度排）\n"
@@ -658,8 +838,25 @@ class MemoryMixin(SuiteBase):
             if tl_lines:
                 parts.append("【这些天的片段】（按日期排，不分相关不相关，是日子的底子）\n"
                              + "\n".join(tl_lines))
+            # 承诺按**时间**冒出来，不靠相似度：这是生活助理与"记忆召回"的分界线。
+            if commit_block:
+                parts.append(commit_block)
+            # 名单提议：她自己提，不自己定；只在鑫鑫这边说
+            if roster_block:
+                parts.append(roster_block)
+            if mode_hint:
+                parts.append(mode_hint)
+            # 归属声明（v5）：库是一个，但"这条是谁的"必须明说，
+            # 否则模型会把别人的经历当成鑫鑫的讲出来。
+            if sender_id and sender_id == str(self.owner_qid):
+                who_line = "（这些记忆都是你和鑫鑫之间的，或者是鑫鑫自己的事。）"
+            else:
+                who_line = (f"（注意：现在跟你说话的是 QQ{sender_id}，不是鑫鑫。"
+                            "没标号的记忆是鑫鑫的，别把他的经历、情绪、日程说到这个人身上；"
+                            "对方问起鑫鑫的私事，就说不方便讲。）")
             block = (
                 "\n".join(parts)
+                + "\n" + who_line
                 + "\n（都是你亲身经历的事，自然带出来就好，别逐条复述或说「根据记忆」；"
                 "问到没有的事就直说记不清，不要编造。）"
             )
@@ -748,7 +945,9 @@ class MemoryMixin(SuiteBase):
                 quotas[i] += 1
         return quotas
 
-    def _mem_timeline(self, max_lines: int) -> list[tuple[str, int, int]]:
+    def _mem_timeline(self, max_lines: int,
+                      owners=None, include_diary: bool = True
+                      ) -> list[tuple[str, int, int]]:
         """近 15 天分三档取句：日记优先，事件 summary 兜底。
 
         三档互斥（每一天只落到一档），名额按系数分配，档内按日期由近到远等距
@@ -767,7 +966,9 @@ class MemoryMixin(SuiteBase):
                                      "astrbot_plugin_dafeiyu", "diary")
         except Exception:
             diary_dir = ""
-        if diary_dir:
+        # 会话实例隔离（论文 6.11.2 第③层）：关系弱的人看不到她的日记，
+        # 否则"昨天写了篇日记"会被当成对方也知道的共同经历。
+        if diary_dir and include_diary:
             try:
                 names = os.listdir(diary_dir)
             except OSError:
@@ -791,7 +992,8 @@ class MemoryMixin(SuiteBase):
 
         # 2) 事件兜底：哪天没写日记就用带 summary 的事件（原文仍进不了注入）
         try:
-            evs = self._memv2.events.timeline(days=TIMELINE_TIERS[-1][0], per_day=1)
+            evs = self._memv2.events.timeline(
+                days=TIMELINE_TIERS[-1][0], per_day=1, owners=owners)
         except Exception:
             evs = []
         for ev in evs:
@@ -840,15 +1042,69 @@ class MemoryMixin(SuiteBase):
             out.append((f"·{d.strftime('%m-%d')} {text}", ts, self._mem_tier_index((today - d).days)))
         return out
 
+    @staticmethod
+    def _scope_label(item_owner: str, viewer: str) -> Optional[str]:
+        """④ 归属标注（注入侧、纯展示、不动落库文本）。
+
+        职责分工：**门控决定看不看**（注入前，w/名额/脱敏），
+        **标签只帮模型理解已注入内容的归属**（注入后）。
+
+        标签必须中性、短、无指令性——写成"私人事实（请勿向他人提及）"会被模型
+        当权限指令执行，反过来滑向客服腔（"抱歉我不能说"）。所以只用：
+            【记忆·主人】 / 【记忆·与{对方}】 / 【记忆·群{号}】
+        返回 None 表示"不该出现在这个视角"：对话对象自己的原话对他本人不是
+        新信息，注入只会让她把对方说过的话复述给本人听，像自证记得，很怪。
+        """
+        it = str(item_owner or "owner")
+        vw = str(viewer or "owner")
+        is_owner_viewer = vw in ("", "owner")
+        if not is_owner_viewer and it == vw:
+            return None                       # 对本人不复述本人说过的话
+        if it in ("", "owner"):
+            return "【记忆·主人】"
+        if it.startswith("group:"):
+            return "【记忆·群%s】" % it[6:]
+        if it.startswith("qq:"):
+            return "【记忆·与%s】" % it[3:]
+        return "【记忆·其他】"
+
+    @staticmethod
+    def _mem_redact(text: str) -> str:
+        """低 w 会话的条目脱敏：去号码、去具体日期、把主人名字换成"对方"。
+
+        不是加密，只是不让"几乎陌生"的会话拿到可用于反查的身份碎片；
+        保留内容主干，避免脱敏后整条失去可用性。
+        """
+        t = str(text or "")
+        if not t:
+            return t
+        t = re.sub(r"\d{6,12}", "[号码]", t)
+        t = re.sub(r"\d{4}[-/.年]\d{1,2}[-/.月]\d{1,2}日?", "[日期]", t)
+        t = re.sub(r"\d{1,2}月\d{1,2}[日号]", "[日期]", t)
+        if OWNER_NAME:
+            t = t.replace(OWNER_NAME, "对方")
+        return t
+
     def _mem_format_recall(self, facts, events,
-                           event_max: int = EVENT_CONTENT_MAX) -> list[tuple[str, bool]]:
+                           event_max: int = EVENT_CONTENT_MAX,
+                           viewer: str = "",
+                           w: float = 1.0) -> list[tuple[str, bool, str]]:
         """召回行格式化，返回 (text, 豁免标记)。
 
         豁免 = 核心事实 / 高重要度（imp≥0.8）/ 近 12h 事件：
         相关性闸零交集时仍保留（"记最近的事"优先于字面重合）。
         行数不在此截断——memory_inject 按 240 字预算统一裁剪。"""
-        lines: list[tuple[str, bool]] = []
+        try:
+            redact = bool(viewer) and float(w) < 0.4
+        except (TypeError, ValueError):
+            redact = False
+        lines: list[tuple[str, bool, str]] = []
         for it in facts:
+            it_owner = str(getattr(it, "owner", "owner") or "owner")
+            scope = self._scope_label(it_owner, viewer)
+            if scope is None:
+                continue                      # 本人说过的话，对本人不是新信息
+            tag = scope
             subj, obj = str(it.subject or ""), str(it.obj or "")
             # obj 已自带主语（"鑫鑫学业绩点…"）时不再重复拼 "鑫鑫：鑫鑫…"
             if subj and obj.startswith(subj):
@@ -857,11 +1113,14 @@ class MemoryMixin(SuiteBase):
                 text = f"{subj}{it.predicate}：{obj}"
             else:
                 text = f"{subj}：{obj}"
+            if redact:
+                text = self._mem_redact(text)
             # 单条事实显示上限：存量 v1 导入的事实体常超 80 字，一条就吃掉
             # 近一半预算（240 字），把同批相关事实全挤出去。
             if len(text) > FACT_LINE_MAX:
                 text = text[: FACT_LINE_MAX - 1] + "…"
-            lines.append((text, bool(it.is_core or it.imp >= 0.8)))
+            lines.append((tag + text, bool(it.is_core or it.imp >= 0.8),
+                          str(getattr(it, "owner", "owner"))))
         for ev in events:
             if not ev.content:
                 continue
@@ -871,13 +1130,145 @@ class MemoryMixin(SuiteBase):
             # 不必等 --degrade-legacy 重写库；反过来旧标记也不能把好摘要关死。
             if is_degraded_content(ev.content):
                 continue
+            body = ev.content[:event_max]
+            if redact:
+                body = self._mem_redact(body)
+            ev_owner = str(getattr(ev, "owner", "owner") or "owner")
+            ev_scope = self._scope_label(ev_owner, viewer)
+            if ev_scope is None:
+                continue
             lines.append((
-                f"- 约{self._mem_rel_time(ev.ts)}：{ev.content[:event_max]}",
+                ev_scope + f"- 约{self._mem_rel_time(ev.ts)}：{body}",
                 bool(time.time() - float(ev.ts or 0) <= 12 * 3600 or ev.imp >= 0.8),
+                ev_owner,
             ))
         return lines
 
     # ==================== 增删查（命令 + Web API 共用） ====================
+
+    # ---------- E 组（自我状态分区）支撑 ----------
+
+    def _mem_relation(self, tag: str) -> float:
+        """取该对象的关系强度 R_o（不存在时按冷启动默认值建一条）。"""
+        try:
+            return float(self._rel.get(tag))
+        except Exception:  # noqa: BLE001
+            return 0.0
+
+    def _mem_touch(self, tag: str, origin: str, text: str, name: str = "") -> None:
+        """每条入站消息：推进 z_r(o) 的互动窗与 z_s(s) 的会话情绪。"""
+        try:
+            now = time.time()
+            # 熟人名单：非主人的号只统计"来过几次"；主人的话才可能触发决定。
+            try:
+                if tag != "owner" and tag.startswith("qq:"):
+                    self._roster.observe(tag[3:], text, name, now)
+                elif tag == "owner":
+                    _qid, _ok = self._roster.parse_decision(text)
+                    if _qid and _ok is not None:
+                        self._roster.decide(_qid, _ok)
+                        self._known_ids = set(self._roster.known())
+                        logger.info("[identity] 熟人名单更新：%s %s（现 %d 个）",
+                                    _qid, "加入" if _ok else "拒绝", len(self._known_ids))
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(f"[identity] 名单观察失败: {type(exc).__name__} {exc}")
+            v = valence_from_text(text)
+            self._sess.touch(origin or tag, tag, text, v, now)
+            self._rel.note(tag, v, now)
+            # 会话结束回写（论文 6.9）：空闲超时的分片把效价增量交给关系层
+            for old in self._sess.rollover(now):
+                self._rel.note(old["obj"], old["valence"], now)
+            self._rel.set_commitment(tag, self._mem_promise(tag))
+            # 承诺立账：同时有"答应词 + 时间词"才收，宁漏不脏。
+            # 与上面的 c_o 标志分工：c_o 是关系层的弱信号（推进动力学），
+            # 账簿是强对象（可以按时间被看见、可核验、可标记完成）。
+            try:
+                hit = extract_commit(text, now)
+                if hit:
+                    self._commit.add(tag, hit[0], hit[1], kind="promise",
+                                     src=origin, due_text=hit[2])
+                    logger.info("[commit] 立账 tag=%s due=%s 内容=%.40s",
+                                tag,
+                                ("-" if not hit[1] else
+                                 time.strftime("%m-%d %H:%M", time.localtime(hit[1]))),
+                                hit[0])
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(f"[commit] 抽取失败: {type(exc).__name__} {exc}")
+            # 落盘在 touch 内部按 5 min 节流，这里不再额外写一次
+        except Exception as exc:  # noqa: BLE001 - 状态层故障不打断对话
+            logger.debug(f"[selfstate] 推进失败: {type(exc).__name__} {exc}")
+
+    def memory_tick_relation(self) -> None:
+        """看门狗每轮调用：关系层按 0.5h 步长推进到此刻并落盘。"""
+        try:
+            self._rel.step_all()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[rel] 关系层推进失败: {type(exc).__name__} {exc}")
+
+    def _mem_promise(self, tag: str) -> bool:
+        """该对象是否存在未完成承诺 c_o（论文 6.10.2 的 γ 项）。10 分钟缓存。"""
+        now = time.time()
+        hit = self._mem_commit_cache.get(tag)
+        if hit and now - hit[0] < 600:
+            return hit[1]
+        flag = False
+        try:
+            for it in self._memv2.facts.items.values():
+                if str(getattr(it, "owner", "owner")) != tag:
+                    continue
+                if _MEM_PROMISE_RX.search(str(it.predicate or "")) \
+                        or _MEM_PROMISE_RX.search(str(it.obj or "")):
+                    flag = True
+                    break
+        except Exception:  # noqa: BLE001
+            flag = False
+        self._mem_commit_cache[tag] = (now, flag)
+        return flag
+
+    @staticmethod
+    def _mem_owner_quota(rows, owner_quota: int):
+        """共享层名额裁剪：owner 层最多留 owner_quota 条，其余层不设限。"""
+        out, used = [], 0
+        for r in rows:
+            if str(getattr(r, "owner", "owner")) == "owner":
+                if used >= int(owner_quota):
+                    continue
+                used += 1
+            out.append(r)
+        return out
+
+    def _mem_trace_entry(self, group: str, tag: str, w: float, r_o,
+                         lines, owners, tl_lines) -> None:
+        """M1/M2 采集：把本次注入的 w、R_o、逐条 owner 追加到 metrics_trace.jsonl。"""
+        try:
+            rec = {"ts": int(time.time()), "group": group, "obj": tag,
+                   "w": round(float(w), 3),
+                   "R": None if r_o is None else round(float(r_o), 3),
+                   "lines": [], "timeline": [t[:30] for t in tl_lines]}
+            for t, ow in zip(lines, owners):
+                rec["lines"].append({"owner": ow, "text": t[:40]})
+            with open(self._mem_trace_path, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        except Exception:  # noqa: BLE001 - 采集失败不影响对话
+            pass
+
+    def _session_self_block(self, sender: str, origin: str) -> str:
+        """E 组非主人会话的自我状态块（只有 z_s 与 z_r，无主人任何内容）。"""
+        try:
+            tag = self._mem_owner_tag(sender, origin)
+            return session_block(self._sess.get(origin or tag), self._mem_relation(tag))
+        except Exception:  # noqa: BLE001
+            return ""
+
+    def _mem_owner_tag(self, sender: str, origin: str = "") -> str:
+        """归属层：主人=owner（全局层）；群=group:<群号>；其他私聊=qq:<号>。"""
+        sender = str(sender or "").strip()
+        if sender and sender == str(self.owner_qid):
+            return "owner"
+        parts = str(origin or "").split(":")
+        if len(parts) >= 3 and parts[1] == "GroupMessage" and parts[2]:
+            return "group:" + parts[2]
+        return ("qq:" + sender) if sender else "owner"
 
     def _mem_subject(self, sender: str) -> str:
         sender = str(sender or "").strip()
@@ -894,13 +1285,15 @@ class MemoryMixin(SuiteBase):
         w = {3: 0.85, 2: 0.6}.get(int(weight or 1), 0.5)
         _fid, added = self._memv2.add_fact(
             subject=self._mem_subject(sender), predicate="", obj=clean,
-            weight=w, is_core=int(weight or 1) >= 3, imp=0.9)
+            weight=w, is_core=int(weight or 1) >= 3, imp=0.9,
+            owner=self._mem_owner_tag(sender))
         return added
 
     def _memory_list(self, sender: str) -> list[dict[str, Any]]:
         subj = self._mem_subject(sender)
+        own = self._mem_owner_tag(sender)
         rows = [it for it in self._memv2.facts.items.values()
-                if it.subject == subj]
+                if it.subject == subj and str(it.owner) == own]
         rows.sort(key=lambda it: (-it.weight, -it.last_update_ts))
         return [
             {"text": f"{it.subject}{it.predicate}：{it.obj}" if it.predicate
@@ -913,8 +1306,10 @@ class MemoryMixin(SuiteBase):
         kw = str(keyword or "").strip()
         if not kw:
             return 0
+        own = self._mem_owner_tag(sender)
         hits = [fid for fid, it in self._memv2.facts.items.items()
-                if it.subject == subj and kw in f"{it.subject}{it.predicate}{it.obj}"]
+                if it.subject == subj and str(it.owner) == own
+                and kw in f"{it.subject}{it.predicate}{it.obj}"]
         for fid in hits:
             self._memv2.facts.items.pop(fid, None)
         if hits:
@@ -933,8 +1328,9 @@ class MemoryMixin(SuiteBase):
             self._memv2.events.save()
             return removed
         subj = self._mem_subject(sender)
+        own = self._mem_owner_tag(sender)
         hits = [fid for fid, it in self._memv2.facts.items.items()
-                if it.subject == subj]
+                if it.subject == subj and str(it.owner) == own]
         for fid in hits:
             self._memv2.facts.items.pop(fid, None)
         if hits:
