@@ -68,11 +68,17 @@ front_end/*.log
 # 前端服务配置（含 access token，只提交 example 模板；本地复制 example 后自行填 token）
 /front_end/serve_config.json
 
+# Flutter 构建产物（release 包 ~47 MB，不入库；需要时本地 flutter build 再生成）
+front_end/*.apk
+
 # 插件运行态配置（data/t2i_templates/*.html 是插件自带模板，属源码，故不整目录忽略）
 plugins/**/data/cmd_config.json
 
 # 临时补丁（已 apply 进代码，留档只会造成"哪份是准的"混淆）
 tools/*.patch
+
+# 本地费用账单（含用量明细，非项目源码）
+tools/*.xlsx
 
 # snowluma 运行体（第三方 node 启动器与配置，不是本项目源码）
 /snowluma/config/

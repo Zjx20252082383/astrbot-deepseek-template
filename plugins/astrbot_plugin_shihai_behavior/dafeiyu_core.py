@@ -1070,7 +1070,7 @@ class DafeiyuCoreMixin:
     def _file_is_image(path: str) -> bool:
         try:
             with open(path, "rb") as f:
-                return DafeiyuPlugin._sniff_image(f.read(16)) is not None
+                return DafeiyuCoreMixin._sniff_image(f.read(16)) is not None
         except Exception:
             return False
 
@@ -1485,7 +1485,7 @@ class DafeiyuCoreMixin:
         """把市场数据统一成字典列表（兼容新版 dict 格式和旧版 list 格式）"""
         if isinstance(raw, dict):
             if isinstance(raw.get("data"), (dict, list)):
-                return DafeiyuPlugin._norm_market_items(raw["data"])
+                return DafeiyuCoreMixin._norm_market_items(raw["data"])
             items = [v for k, v in raw.items() if not k.startswith("$") and isinstance(v, dict)]
         elif isinstance(raw, list):
             items = [x for x in raw if isinstance(x, dict)]
