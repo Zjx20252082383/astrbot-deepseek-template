@@ -122,6 +122,22 @@ def is_degraded_content(content: str) -> bool:
     )
 
 
+def is_raw_transcript(content: str) -> bool:
+    """真正的原文兜底：多行，或带说话人前缀。
+
+    与 is_degraded_content 的分工（2026-11-12）：
+      · is_degraded_content 保留"超长"判据，用于检索标记 / 归档判据
+        （degraded 且无 summary 的事件 15 天后进 event_archive）——它是个
+        "值不值得长期占位"的判据，不必等于"能不能进注入"。
+      · 注入侧只该拦真正的原文：一段 169~220 字的单行固结摘要是有内容的
+        日记，按预算裁到 event_max 就能用；整条丢掉会让这批事件永远进不了
+        上下文，表现成"记了日记却想不起来"。实测存量 475 条里只有这一类
+        105 条（换行/前缀的 276 条本来就是原文，仍应拦）。
+    """
+    c = str(content or "")
+    return bool("\n" in c or c.lstrip().startswith(DIALOGUE_PREFIXES))
+
+
 def _now() -> int:
     return int(time.time())
 
@@ -720,7 +736,10 @@ class EventBank:
                 continue
             text = (ev.summary or "").strip()
             if not text:
-                if not ev.content or is_degraded_content(ev.content):
+                # 与注入侧同口径：只拦真原文（多行/说话人前缀）。超长的单行
+                # 固结摘要按下面的 limit 裁后可进时间线，否则这批事件在
+                # "这些天的片段"里同样消失（存量 105 条）。
+                if not ev.content or is_raw_transcript(ev.content):
                     continue
                 text = (ev.content or "").strip()
             d = datetime.fromtimestamp(ev.ts).date()

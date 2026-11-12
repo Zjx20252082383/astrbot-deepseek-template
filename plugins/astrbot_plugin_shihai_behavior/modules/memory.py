@@ -43,7 +43,7 @@ from .base import SuiteBase, to_int
 from .query_classifier import needs_timeline
 from .memory_v2 import (
     EVENT_CONTENT_MAX, EVENT_TOP_N, FACT_TOP_N, TIMELINE_DAYS, MemoryV2, grams,
-    is_degraded_content, owner_label)
+    is_degraded_content, is_raw_transcript, owner_label)
 from .transcript_store import TranscriptStore
 from .relational import (RelationStore, quota, valence_from_text,
                          visible_weight)
@@ -1124,13 +1124,15 @@ class MemoryMixin(SuiteBase):
         for ev in events:
             if not ev.content:
                 continue
-            # 质量闸：原文兜底/超长摘要可检索但不进注入。
-            # 判定以 is_degraded_content（当前口径）为准，落盘 degraded 字段只作
-            # 缓存/审计——这样旧口径（>80 字）误伤的合格摘要立刻回到注入，
-            # 不必等 --degrade-legacy 重写库；反过来旧标记也不能把好摘要关死。
-            if is_degraded_content(ev.content):
+            # 质量闸：只拦真正的原文兜底（多行 / 带说话人前缀）。
+            # 2026-11-12 收窄：原来走 is_degraded_content，把"超长"也算降级，
+            # 169~220 字的单行固结摘要于是整条被丢——存量 475 条里有 105 条
+            # 仅因长度进不了注入，表现成"记了日记却想不起来"。这类是可用内容，
+            # 按标点裁到 event_max 注入即可；degraded 字段仍留原口径，只做检索
+            # 标记与归档判据（degraded 且无 summary 的 15 天后归档）。
+            if is_raw_transcript(ev.content):
                 continue
-            body = ev.content[:event_max]
+            body = self._mem_clip(ev.content, event_max)
             if redact:
                 body = self._mem_redact(body)
             ev_owner = str(getattr(ev, "owner", "owner") or "owner")
