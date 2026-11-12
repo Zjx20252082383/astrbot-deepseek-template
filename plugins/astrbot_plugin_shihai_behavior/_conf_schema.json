@@ -893,7 +893,7 @@
   "experiment": {
     "description": "消融实验分组（论文对照）",
     "type": "object",
-    "hint": "四组递进，每组只比上一组多一个变量：a_none 无记忆（纯人格+会话上下文）/ b_recall 纯语义召回（按字面重合排序，等价普通 RAG）/ c_recall_timeline 召回+时序（再补「这些天的片段」）/ d_full 完整识海（排序再叠加激活 a、重要度 imp、weight 动力学）。关闭 enabled 时一律按 d_full 运行，行为与改造前完全一致。",
+    "hint": "五组递进，每组只比上一组多一个变量：a_none 无记忆（纯人格+会话上下文）/ b_recall 纯语义召回（按字面重合排序，等价普通 RAG）/ c_recall_timeline 召回+时序（再补「这些天的片段」）/ d_full 完整识海（排序再叠加激活 a、重要度 imp、weight 动力学）/ e_partitioned 自我状态分区（d_full + z_p/z_r(o)/z_s(s) 三分解、共享层按关系强度连续门控 w=σ(6(R_o−0.40))、视角标记、时间线按会话实例隔离）。关闭 enabled 时一律按 d_full 运行，行为与改造前完全一致。",
     "items": {
       "enabled": {
         "description": "启用实验分组",
@@ -904,13 +904,14 @@
       "group": {
         "description": "实验组别",
         "type": "string",
-        "hint": "a_none 无记忆 / b_recall 纯语义召回 / c_recall_timeline 召回+时序 / d_full 完整识海",
+        "hint": "a_none 无记忆 / b_recall 纯语义召回 / c_recall_timeline 召回+时序 / d_full 完整识海 / e_partitioned 自我状态分区",
         "default": "d_full",
         "options": [
           "a_none",
           "b_recall",
           "c_recall_timeline",
-          "d_full"
+          "d_full",
+          "e_partitioned"
         ]
       },
       "label": {
