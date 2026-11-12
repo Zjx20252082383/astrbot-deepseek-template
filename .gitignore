@@ -65,6 +65,9 @@ astrbot.lock
 # 前端服务日志
 front_end/*.log
 
+# 前端服务配置（含 access token，只提交 example 模板；本地复制 example 后自行填 token）
+/front_end/serve_config.json
+
 # 插件运行态配置（data/t2i_templates/*.html 是插件自带模板，属源码，故不整目录忽略）
 plugins/**/data/cmd_config.json
 
