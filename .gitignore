@@ -38,3 +38,42 @@ scripts/watchdog/cool_*.txt
 scripts/watchdog/mode.txt
 scripts/watchdog/*.log
 scripts/watchdog/*_boot.log
+watchdog/cool_*.txt
+watchdog/mode.txt
+watchdog/*.log
+
+# QQ 客户端运行时（二进制与本地会话，不入仓）
+/snowluma/node.exe
+/snowluma/index.mjs
+/snowluma/native/
+/snowluma/client/
+/snowluma/logs/
+/snowluma/data/
+
+# 本地专用区（历史归档、实验基线与工具）
+/archive/
+/实验基线快照/
+/实验台/
+
+# 本地改动备份（*.bak 匹配不到带日期的 .bak_20261112_xxx，需整目录忽略）
+/backups/
+
+# AstrBot 运行时锁与标记
+.astrbot
+astrbot.lock
+
+# 前端服务日志
+front_end/*.log
+
+# 插件运行态配置（data/t2i_templates/*.html 是插件自带模板，属源码，故不整目录忽略）
+plugins/**/data/cmd_config.json
+
+# 临时补丁（已 apply 进代码，留档只会造成"哪份是准的"混淆）
+tools/*.patch
+
+# snowluma 运行体（第三方 node 启动器与配置，不是本项目源码）
+/snowluma/config/
+/snowluma/package.json
+/snowluma/launcher.bat
+/snowluma/release.json
+/snowluma/check-node-version.cjs
