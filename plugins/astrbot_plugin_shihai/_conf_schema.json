@@ -3,19 +3,19 @@
     "description": "识海主动开口",
     "type": "bool",
     "default": true,
-    "hint": "念头 u(t) 攒满阈值后，核心发 fire_pending，行为插件（shihai_behavior）按涌现规则生成一句话发给用户（论文§5.6/§9/§12）。离线模式.bat 会自动暂存行为插件省 token。"
+    "hint": "念头 u(t) 攒满阈值后，核心发 fire_pending，行为插件（shihai_behavior）按涌现规则生成一句话发给主人（论文§5.6/§9/§12）。离线模式.bat 会自动暂存行为插件省 token。"
   },
   "owner_only_feedback": {
-    "description": "只对用户做反馈自适应",
+    "description": "只对主人做反馈自适应",
     "type": "bool",
     "default": true,
-    "hint": "θ 在线学习（§11 反馈信号表）只吃用户的消息；群友的'嗯哦'不会让她变冷淡。"
+    "hint": "θ 在线学习（§11 反馈信号表）只吃主人的消息；群友的'嗯哦'不会让她变冷淡。"
   },
   "owner_only_perception": {
-    "description": "只把用户的消息写进心智图谱",
+    "description": "只把主人的消息写进心智图谱",
     "type": "bool",
     "default": true,
-    "hint": "开启后非 owner_qid 的会话消息不进入全局情绪场/记忆图谱，避免别人的话被召回后注入到用户的对话。若确实要让她记住群友，关掉此项；关掉后需同时接受群聊内容会进入同一图谱。"
+    "hint": "开启后非 owner_qid 的会话消息不进入全局情绪场/记忆图谱，避免别人的话被召回后注入到主人的对话。若确实要让她记住群友，关掉此项；关掉后需同时接受群聊内容会进入同一图谱。"
   },
   "tick_seconds": {
     "description": "心跳步长（秒）",
@@ -24,9 +24,9 @@
     "hint": "每多少秒推进一次 ODE/图谱衰减/念头积累。60 秒是论文动力学的时间粒度，最小 30。"
   },
   "owner_qid": {
-    "description": "用户 QQ 号",
+    "description": "主人 QQ 号",
     "type": "string",
-    "default": "1000000001",
+    "default": "3848385085",
     "hint": "主动开口发给谁、谁的反馈驱动 θ 自适应。"
   },
   "platform_id": {
@@ -38,7 +38,7 @@
   "bot_qid": {
     "description": "机器人自己的 QQ 号",
     "type": "string",
-    "default": "1000000002",
+    "default": "3876988752",
     "hint": "自我回声防护：自己的消息不进情绪场，防止自言自语烧 token。"
   },
   "tau_happy": {
@@ -398,7 +398,7 @@
       "max": 3,
       "step": 0.05
     },
-    "hint": "论文§9：用户活跃时段（8-24点）念头攒得快。"
+    "hint": "论文§9：主人活跃时段（8-24点）念头攒得快。"
   },
   "rhythm_off": {
     "description": "RHYTHM_OFF 作息未命中增速",
@@ -497,7 +497,7 @@
       "max": 120,
       "step": 1
     },
-    "hint": "论文§11：主动消息后 5 分钟内用户接话 = 正反馈，阈值下调。"
+    "hint": "论文§11：主动消息后 5 分钟内主人接话 = 正反馈，阈值下调。"
   },
   "reengage_step": {
     "description": "接续阈值下调步长",

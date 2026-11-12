@@ -1,4 +1,4 @@
-"""小鱼合集插件的业务模块（Mixin）。"""
+"""大肥鱼合集插件的业务模块（Mixin）。"""
 
 from .base import SuiteBase
 from .complain import ComplainMixin

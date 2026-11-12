@@ -90,13 +90,13 @@ RECALL_MIN_OVERLAP = 2
 RECALL_MIN_GAP = 24 * 3600
 # 事件落盘截断上限（保细节；注入时才按 memory.event_content_max 截短）
 EVENT_STORE_MAX = 220
-# 事件摘要质量闸阈值：含换行 / 以「用户：」「小助手：」（旧转写的「用户：」「我：」）开头的原文
+# 事件摘要质量闸阈值：含换行 / 以「鑫鑫：」「小满：」（旧转写的「主人：」「我：」）开头的原文
 # → degraded（可检索但不进注入）。阈值与固结 prompt 的「不超过100字」契约对齐；
 # 定在 80 会把 85~100 字的合格摘要一起误伤成"不进注入"。
 EVENT_DEGRADE_MAX = 100
 
 # 转写原文的说话人前缀（新旧称呼都算原文，避免改名后旧条目漏进注入）
-DIALOGUE_PREFIXES = ("用户：", "小助手：", "用户：", "我：")
+DIALOGUE_PREFIXES = ("鑫鑫：", "小满：", "主人：", "我：")
 
 # 事件检索里 a（freeze_peak 冻结的峰值，只降不升）的权重。
 # 0.8 时旧事件靠 a=1.0 拿到 ~0.9 的底分，任何 query 都进 top_n；
@@ -204,6 +204,8 @@ class EventItem:
     de_dt: float = 0.0
     peak_u: float = 0.0
     doc_id: Optional[str] = None
+    # 方案 A：指向 transcript.db 中同一轮的逐字原文（turn_id），需要时回查
+    transcript_turn_id: Optional[str] = None
     emotion_tag: Optional[str] = None
     edge_kw: List[str] = field(default_factory=list)
     edge_emotion: List[str] = field(default_factory=list)

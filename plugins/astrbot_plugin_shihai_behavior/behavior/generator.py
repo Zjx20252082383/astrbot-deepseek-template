@@ -1,7 +1,7 @@
 """主动消息生成与投递（论文 §13.1：Behavior API → Platform Adapter）。
 
 输入 = 人设一句 + 意图包 I_t + 简短固定指令，别无其他；
-输出 = 一句要发给用户的话，经 context.send_message 投递。
+输出 = 一句要发给主人的话，经 context.send_message 投递。
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from astrbot.api import logger
 from astrbot.api.event import MessageChain
 from astrbot.api.message_components import File, Image, Plain, Record
 
-DEFAULT_TEXT_PROMPT = "（把你此刻想对用户说的话说出来）"
+DEFAULT_TEXT_PROMPT = "（把你此刻想对主人说的话说出来）"
 
 
 class ProactiveSender:

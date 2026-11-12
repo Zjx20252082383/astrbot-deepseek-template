@@ -122,7 +122,7 @@ class EvolutionEngine:
         })
 
     def mark_replied(self, action_id: str, decision_ts: float):
-        """用户对上一次主动消息有回应：只记一次，避免每 20s 重复打点。"""
+        """主人对上一次主动消息有回应：只记一次，避免每 20s 重复打点。"""
         if not self.enabled or not action_id:
             return
         key = f"{action_id}:{round(float(decision_ts or 0), 3)}"

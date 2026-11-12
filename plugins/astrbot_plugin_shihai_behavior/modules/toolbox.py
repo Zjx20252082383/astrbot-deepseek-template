@@ -1,4 +1,4 @@
-"""AstrBot 插件：QQ 资料与空间工具箱（小鱼版）
+"""AstrBot 插件：QQ 资料与空间工具箱（大肥鱼版）
 
 双通道设计：
 1. LLM 工具通道（主路径）：把改昵称、改签名、发说说、点赞/评论/回复/删除说说、名片赞做成
@@ -74,7 +74,7 @@ API_LIKE = (
 CODE_LOGIN_EXPIRED = -3000
 CODE_IMAGE_EXPIRED = -100
 
-# 用户话里出现这些词，就提醒她这次可以顺手改个签名
+# 主人话里出现这些词，就提醒她这次可以顺手改个签名
 MOODS = {
     "在夸你": ["真棒", "真厉害", "好厉害", "你厉害", "太强了", "好聪明", "真聪明", "真乖", "好可爱", "真可爱", "最喜欢你", "夸你"],
     "在说你，你有点委屈": ["好笨", "真笨", "笨死", "笨蛋", "讨厌你", "烦死", "没用", "闭嘴", "滚", "傻", "凶你", "不理你"],
@@ -1027,7 +1027,7 @@ class ToolboxMixin(SuiteBase):
             }
         )
         logger.info(f"[qq_toolbox] 昵称改成「{nickname}」")
-        return f"昵称已经改成「{nickname}」。用一句话跟用户说改好了就行。"
+        return f"昵称已经改成「{nickname}」。用一句话跟主人说改好了就行。"
 
     async def _change_signature(self, event: AstrMessageEvent, signature: str, owner_asked: bool, reason: str) -> str:
         signature = (signature or "").strip().strip("「」“”\"'")
@@ -1041,12 +1041,12 @@ class ToolboxMixin(SuiteBase):
             limit = int(self._toolbox_cfg("daily_owner_limit") or 10)
             used = self._toolbox_count_today("signature", owner_asked=True)
             if used >= limit:
-                return f"今天已经按用户的意思改了 {used} 次签名，先不改了。跟用户说明天再换。"
+                return f"今天已经按主人的意思改了 {used} 次签名，先不改了。跟主人说明天再换。"
         else:
             limit = int(self._toolbox_cfg("daily_self_limit") or 2)
             used = self._toolbox_count_today("signature", owner_asked=False)
             if used >= limit:
-                return f"你今天已经自己改过 {used} 次签名了，这次先不改，也不用跟用户提这件事。"
+                return f"你今天已经自己改过 {used} 次签名了，这次先不改，也不用跟主人提这件事。"
 
         history = self._toolbox_load()
         last_sig = next(
@@ -1079,8 +1079,8 @@ class ToolboxMixin(SuiteBase):
         )
         logger.info(f"[qq_toolbox] 签名改成「{signature}」 owner_asked={owner_asked} reason={reason}")
         if owner_asked:
-            return f"签名已经改成「{signature}」。用一句话跟用户说改好了就行。"
-        return f"签名已经改成「{signature}」。可以顺嘴跟用户提一句你改了签名，一句话就够，也可以不提。"
+            return f"签名已经改成「{signature}」。用一句话跟主人说改好了就行。"
+        return f"签名已经改成「{signature}」。可以顺嘴跟主人提一句你改了签名，一句话就够，也可以不提。"
 
     async def _post_feed(
         self, event: AstrMessageEvent, content: str, sources: list[str] | None = None, speaker: str = "owner"
@@ -1098,7 +1098,7 @@ class ToolboxMixin(SuiteBase):
         limit = int(self._toolbox_cfg("daily_feed_limit") or 2)
         used = self._toolbox_count_today("feed")
         if used >= limit:
-            return f"今天已经发过 {used} 条说说了，先不发了。用你的口吻跟用户说一句。"
+            return f"今天已经发过 {used} 条说说了，先不发了。用你的口吻跟主人说一句。"
 
         history = self._toolbox_load()
         last_feed = next(
@@ -1132,8 +1132,8 @@ class ToolboxMixin(SuiteBase):
         )
         logger.info(f"[qq_toolbox] 发说说成功：{content[:30]}（图 {len(images)} 张）")
         if images:
-            return f"说说带着 {len(images)} 张图片发出去了。可以顺嘴跟用户提一句，也可以不提。"
-        return "说说已经发出去了。可以顺嘴跟用户提一句，也可以不提。"
+            return f"说说带着 {len(images)} 张图片发出去了。可以顺嘴跟主人提一句，也可以不提。"
+        return "说说已经发出去了。可以顺嘴跟主人提一句，也可以不提。"
 
     # ---------------- AI 写说说 -----------------------------
 
@@ -1177,9 +1177,9 @@ class ToolboxMixin(SuiteBase):
             persona = ""
         system_prompt = (persona + "\n" + prompt) if persona else prompt
         system_prompt += (
-            "\n主语纪律：素材里标『用户说』的是用户的经历，不是你的；"
+            "\n主语纪律：素材里标『主人说』的是主人的经历，不是你的；"
             "只有标『我说』的才是你自己做过的。说说只能写你自己的感受，"
-            "绝不能把用户的事写成你做的。"
+            "绝不能把主人的事写成你做的。"
         )
         if topic:
             system_prompt += f"\n这次想写的主题：{topic}（只围绕这个主题写，不要另外编造主题之外的事件）"
@@ -1228,7 +1228,7 @@ class ToolboxMixin(SuiteBase):
             return err
         result = await self._post_feed(event, text, [], speaker="self")
         if "发出去了" in result:
-            return f"你自己写的说说「{text}」已经发出去了。跟用户说一声就行，可以顺嘴提一句写了什么。"
+            return f"你自己写的说说「{text}」已经发出去了。跟主人说一声就行，可以顺嘴提一句写了什么。"
         return result
 
     # ---------------- 主动心情动态（定时自己发说说） -----------------------------
@@ -1276,7 +1276,7 @@ class ToolboxMixin(SuiteBase):
                 per_day = max(0, to_int(self._toolbox_cfg("auto_post_per_day", 1), 1))
                 if per_day <= 0:
                     continue
-                # session="" 的记录 = 她自己主动发的（与用户触发/情绪触发区分开）
+                # session="" 的记录 = 她自己主动发的（与主人触发/情绪触发区分开）
                 if self._toolbox_count_today("feed", session="") >= per_day:
                     continue
                 if not self._in_auto_post_window():
@@ -1299,7 +1299,7 @@ class ToolboxMixin(SuiteBase):
                     failures = 0
 
     def _today_real_material(self) -> list[str]:
-        """从识海图谱取今天的真实事件（用户聊过的事 + 她自己做过的事），作说说素材。
+        """从识海图谱取今天的真实事件（主人聊过的事 + 她自己做过的事），作说说素材。
 
         读的就是核心插件落盘的 shihai_graph.json——只读，不碰引擎内存。
         """
@@ -1322,7 +1322,7 @@ class ToolboxMixin(SuiteBase):
                 if not content:
                     continue
                 hhmm = time.strftime("%H:%M", time.localtime(created))
-                who = "我说" if str(nd.get("sender", "") or "") == "bot" else "用户说"
+                who = "我说" if str(nd.get("sender", "") or "") == "bot" else "主人说"
                 rows.append((created, f"({hhmm}){who}：{content}"))
             rows.sort(key=lambda r: -r[0])
             return [c for _, c in rows[:12]]
@@ -1383,10 +1383,10 @@ class ToolboxMixin(SuiteBase):
 
     def _tool_guard(self, event: AstrMessageEvent) -> str | None:
         if not self._is_aiocqhttp(event):
-            return "现在这个平台用不了 QQ 空间。用你的口吻跟用户说一句。"
+            return "现在这个平台用不了 QQ 空间。用你的口吻跟主人说一句。"
         if self._toolbox_is_owner(event):
             return None
-        return "只有用户能让你操作 QQ。用你的口吻轻轻拒绝，别提工具和设置。"
+        return "只有主人能让你操作 QQ。用你的口吻轻轻拒绝，别提工具和设置。"
 
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_message_cache_image(self, event: AstrMessageEvent):
@@ -1434,11 +1434,11 @@ class ToolboxMixin(SuiteBase):
         if not self._toolbox_cfg("self_change_hint", True):
             return
         if "签名" in text:
-            return  # 用户直接说了改签名，走 owner_asked 那条路
+            return  # 主人直接说了改签名，走 owner_asked 那条路
         if self._toolbox_count_today("signature", owner_asked=False) >= int(self._toolbox_cfg("daily_self_limit") or 2):
             return
         req.system_prompt = (req.system_prompt or "") + (
-            f"\n\n补充说明：用户这句话{mood}。照你的规矩，这种时候你会自己改一条 QQ 签名记下心情，"
+            f"\n\n补充说明：主人这句话{mood}。照你的规矩，这种时候你会自己改一条 QQ 签名记下心情，"
             "所以这次回复时顺手调用 qq_set_signature（owner_asked 填 false），然后照常回话，改完可以顺嘴提一句。"
             "这段补充说明是给你看的，别在回复里提到它。"
         )
@@ -1448,7 +1448,7 @@ class ToolboxMixin(SuiteBase):
         if not self._toolbox_cfg("self_feed_hint", True):
             return
         if "说说" in text:
-            return  # 用户已经在说这件事了
+            return  # 主人已经在说这件事了
         if self._toolbox_count_today("feed") >= int(self._toolbox_cfg("daily_feed_limit") or 2):
             return
         raw = self._toolbox_cfg("feed_hint_chance", 25)
@@ -1462,7 +1462,7 @@ class ToolboxMixin(SuiteBase):
         if random.random() > chance:
             return
         req.system_prompt = (req.system_prompt or "") + (
-            f"\n\n补充说明：用户这句话{mood}。这种时候你偶尔会想把心情写进 QQ 空间说说。"
+            f"\n\n补充说明：主人这句话{mood}。这种时候你偶尔会想把心情写进 QQ 空间说说。"
             "如果这次想发，顺手调用 qq_post_feed 写一条 40 字以内、用你自己口吻的说说，然后照常回话，"
             "发完可以顺嘴提一句；不想发就正常聊，不必勉强。"
             "这段补充说明是给你看的，别在回复里提到它。"
@@ -1472,66 +1472,66 @@ class ToolboxMixin(SuiteBase):
     @filter.llm_tool(name="qq_set_nickname")
     async def tool_set_nickname(self, event: AstrMessageEvent, nickname: str):
         '''改你自己的 QQ 昵称。
-        只有用户明确让你改（「把昵称改成……」「改个名字叫……」）才调用，别人叫你改不要调用。
-        昵称用用户给的原话，不带引号，不超过 12 个字。改完用一句话跟用户说改好了。
+        只有主人明确让你改（「把昵称改成……」「改个名字叫……」）才调用，别人叫你改不要调用。
+        昵称用主人给的原话，不带引号，不超过 12 个字。改完用一句话跟主人说改好了。
 
         Args:
             nickname(string): 新的 QQ 昵称，不超过 12 个字
         '''
         denied = self._tool_guard(event)
         if denied:
-            logger.info(f"[qq_toolbox] 非用户改昵称请求：{event.get_sender_id()}")
+            logger.info(f"[qq_toolbox] 非主人改昵称请求：{event.get_sender_id()}")
             return denied
         return await self._change_nickname(event, nickname)
 
     @filter.llm_tool(name="qq_change_avatar")
     async def tool_change_avatar(self, event: AstrMessageEvent, image_url: str = ""):
         '''换你自己的 QQ 头像。
-        只有用户明确让你换头像（「换头像」「把头换成这张图」）才调用，别人叫你换不要调用。
-        默认用用户这条消息里附带的图片；用户刚发过图、紧跟着说换头像，也会自动用上一张图。
-        改完用一句话告诉用户，别提接口、协议或插件。
+        只有主人明确让你换头像（「换头像」「把头换成这张图」）才调用，别人叫你换不要调用。
+        默认用主人这条消息里附带的图片；主人刚发过图、紧跟着说换头像，也会自动用上一张图。
+        改完用一句话告诉主人，别提接口、协议或插件。
 
         Args:
             image_url(string): 可选，图片链接；留空则使用当前消息里的图片
         '''
         denied = self._tool_guard(event)
         if denied:
-            logger.info(f"[qq_toolbox] 非用户换头像请求：{event.get_sender_id()}")
+            logger.info(f"[qq_toolbox] 非主人换头像请求：{event.get_sender_id()}")
             return denied
         source = (image_url or "").strip() or self._find_image(event)
         if not source:
-            return "用户没给图片。用你的口吻问一句能不能发张图过来，我再换。"
+            return "主人没给图片。用你的口吻问一句能不能发张图过来，我再换。"
         try:
             await self._call(event, "set_qq_avatar", file=source)
         except Exception as exc:
             logger.error(f"[qq_toolbox] 换头像失败: {exc}")
             return "头像这次没换成。用你自己的口吻说一句等会儿再试，别提技术细节。"
-        return "头像已经换成用户给的那张了。自然地说一句就行。"
+        return "头像已经换成主人给的那张了。自然地说一句就行。"
 
     @filter.llm_tool(name="qq_set_signature")
     async def tool_set_signature(
         self, event: AstrMessageEvent, signature: str, owner_asked: bool = False, reason: str = ""
     ):
         '''改你自己的 QQ 个性签名。
-        - 用户叫你改，怎么说都算（「把签名改成……」「换个签名」「签名写上我生日快乐」）：照用户的意思写，owner_asked 填 true。
-        - 不用用户开口，你自己也会改：用户夸你、你受了委屈或者生气了、用户过生日、碰上值得记一笔的事，就顺手调用一次，写一句你当下的心情，owner_asked 填 false。平常闲聊别改；一天最多自己改两次，用完了工具会告诉你。
-        签名用你自己的口吻，一句话，不超过 30 个字，不加引号。改完可以顺嘴跟用户提一句。别人（不是用户）叫你改，不要调用。
+        - 主人叫你改，怎么说都算（「把签名改成……」「换个签名」「签名写上我生日快乐」）：照主人的意思写，owner_asked 填 true。
+        - 不用主人开口，你自己也会改：主人夸你、你受了委屈或者生气了、主人过生日、碰上值得记一笔的事，就顺手调用一次，写一句你当下的心情，owner_asked 填 false。平常闲聊别改；一天最多自己改两次，用完了工具会告诉你。
+        签名用你自己的口吻，一句话，不超过 30 个字，不加引号。改完可以顺嘴跟主人提一句。别人（不是主人）叫你改，不要调用。
 
         Args:
             signature(string): 新签名，一句话，不超过 30 个字
-            owner_asked(boolean): 是不是用户叫你改的
-            reason(string): 为什么改，几个字，比如「用户夸我」「用户生日」「用户让改」
+            owner_asked(boolean): 是不是主人叫你改的
+            reason(string): 为什么改，几个字，比如「主人夸我」「主人生日」「主人让改」
         '''
         denied = self._tool_guard(event)
         if denied:
-            logger.info(f"[qq_toolbox] 非用户改签名请求：{event.get_sender_id()}")
+            logger.info(f"[qq_toolbox] 非主人改签名请求：{event.get_sender_id()}")
             return denied
         return await self._change_signature(event, signature, owner_asked, reason)
 
     @filter.llm_tool(name="qq_post_feed")
     async def tool_post_feed(self, event: AstrMessageEvent, content: str, images: str = ""):
         '''发一条 QQ 空间说说，可以带图片。
-        用户明确让你发（「发条说说」「空间里说一句……」）才调用；不要自己想到就发，也不要发广告、联系方式、涉政内容。
+        主人明确让你发（「发条说说」「空间里说一句……」）才调用；不要自己想到就发，也不要发广告、联系方式、涉政内容。
         说说用你自己的口吻写，可以带一点情绪，40 字以内最自然。一天最多发几条由设置决定，超了工具会拒绝。
 
         Args:
@@ -1546,11 +1546,11 @@ class ToolboxMixin(SuiteBase):
     @filter.llm_tool(name="qq_ai_post_feed")
     async def tool_ai_post_feed(self, event: AstrMessageEvent, topic: str = ""):
         '''让模型自己想内容，发一条 QQ 空间说说。
-        用户说「你自己写一条说说」「随便发点什么」「按这个主题发一条」时用；用户给了主题就填进 topic。
+        主人说「你自己写一条说说」「随便发点什么」「按这个主题发一条」时用；主人给了主题就填进 topic。
         不要自己想到就发，也不要发广告、联系方式、涉政内容。一天最多几条由设置决定，超了工具会拒绝。
 
         Args:
-            topic(string): 用户给的主题，没给就留空
+            topic(string): 主人给的主题，没给就留空
         '''
         denied = self._tool_guard(event)
         if denied:
@@ -1559,7 +1559,7 @@ class ToolboxMixin(SuiteBase):
 
     @filter.llm_tool(name="qq_list_feeds")
     async def tool_list_feeds(self, event: AstrMessageEvent, count: str = "5"):
-        '''看看自己最近发过哪些说说，用来回答用户的问题，或者给后面的点赞、评论、回复、删除找序号。
+        '''看看自己最近发过哪些说说，用来回答主人的问题，或者给后面的点赞、评论、回复、删除找序号。
 
         Args:
             count(string): 看最近几条，1-20，默认 5
@@ -1581,7 +1581,7 @@ class ToolboxMixin(SuiteBase):
 
     @filter.llm_tool(name="qq_like_feed")
     async def tool_like_feed(self, event: AstrMessageEvent, target: str = "1"):
-        '''给自己空间里的某条说说点赞。用户说「给那条说说点个赞」时用，参考 qq_list_feeds 的序号。
+        '''给自己空间里的某条说说点赞。主人说「给那条说说点个赞」时用，参考 qq_list_feeds 的序号。
 
         Args:
             target(string): 说说序号（从 1 开始），也可以直接填 tid；省略则点最新一条
@@ -1600,12 +1600,12 @@ class ToolboxMixin(SuiteBase):
         except Exception as exc:
             logger.error(f"[qq_toolbox] 点赞说说失败: {exc}")
             return "点赞没成功。用你的口吻说一句等会儿再试，别提技术细节。"
-        return "已经点上赞了。一句话跟用户说一声就行。"
+        return "已经点上赞了。一句话跟主人说一声就行。"
 
     @filter.llm_tool(name="qq_comment_feed")
     async def tool_comment_feed(self, event: AstrMessageEvent, content: str, target: str = "1"):
         '''在自己空间的某条说说下面评论。
-        用户让你回一句才用；评论内容用你自己的口吻，别写「来自机器人」之类暴露身份的话。
+        主人让你回一句才用；评论内容用你自己的口吻，别写「来自机器人」之类暴露身份的话。
 
         Args:
             content(string): 评论内容
@@ -1634,7 +1634,7 @@ class ToolboxMixin(SuiteBase):
     @filter.llm_tool(name="qq_reply_comment")
     async def tool_reply_comment(self, event: AstrMessageEvent, feed: str, comment: str, content: str):
         '''回复某条说说下面的某条评论。
-        先用 qq_list_feeds 看序号：大序号是说说，下面 └ 开头的是评论。用户说「回复第二条评论」时用。
+        先用 qq_list_feeds 看序号：大序号是说说，下面 └ 开头的是评论。主人说「回复第二条评论」时用。
 
         Args:
             feed(string): 说说序号，从 1 开始
@@ -1663,7 +1663,7 @@ class ToolboxMixin(SuiteBase):
 
     @filter.llm_tool(name="qq_delete_feed")
     async def tool_delete_feed(self, event: AstrMessageEvent, target: str):
-        '''删掉自己空间里的一条说说。只有用户明确要求删才调用，删之前先确认是哪一条。
+        '''删掉自己空间里的一条说说。只有主人明确要求删才调用，删之前先确认是哪一条。
 
         Args:
             target(string): 说说序号（从 1 开始）或 tid
@@ -1689,7 +1689,7 @@ class ToolboxMixin(SuiteBase):
 
     @filter.llm_tool(name="qq_like_card")
     async def tool_like_card(self, event: AstrMessageEvent, user_id: str, times: str = "10"):
-        '''给某个 QQ 号的名片点赞（就是名片赞）。用户让你给谁点赞时才调用。
+        '''给某个 QQ 号的名片点赞（就是名片赞）。主人让你给谁点赞时才调用。
 
         Args:
             user_id(string): 目标 QQ 号
@@ -1710,7 +1710,7 @@ class ToolboxMixin(SuiteBase):
         except Exception as exc:
             logger.error(f"[qq_toolbox] 名片赞失败: {exc}")
             return "名片赞没点上。用你的口吻说一句等会儿再试，别提技术细节。"
-        return f"给 {user_id} 点了 {times} 个名片赞。一句话跟用户说一声就行。"
+        return f"给 {user_id} 点了 {times} 个名片赞。一句话跟主人说一声就行。"
 
     # ---------------- 斜杠指令通道（兜底） -----------------------------
 
@@ -1759,7 +1759,7 @@ class ToolboxMixin(SuiteBase):
         if not text:
             yield event.plain_result("用法：/改签名 你想设置的签名")
             return
-        result = await self._change_signature(event, text, owner_asked=True, reason="用户让改")
+        result = await self._change_signature(event, text, owner_asked=True, reason="主人让改")
         yield event.plain_result(result)
 
     @filter.command("名片赞")

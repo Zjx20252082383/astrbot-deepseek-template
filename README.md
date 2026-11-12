@@ -73,10 +73,15 @@
 ```
 AstrBot_snowluma\
 ├── README.md
+├── core\                           # ★ 核心知识入口：架构总览、术语表、设计决策、调研 PPT
+│   ├── README.md                        # 核心架构与导航（先读这个）
+│   ├── glossary.md                      # 术语表
+│   ├── 识海_深度项目调研汇报.pptx         # 24 页多图表调研汇报
+│   └── decisions\                       # 架构决策记录（ADR）
 ├── plugins\                        # ★ 九个插件（拷到 AstrBot 的 data\plugins\ 下即可用）
 │   ├── astrbot_plugin_shihai\            # 核心心智：情绪场 + 神经图谱 + 念头 + 自我调节
 │   ├── astrbot_plugin_shihai_psyche\     # 心理模型：大五、依恋、防御、自我效能
-│   ├── astrbot_plugin_shihai_behavior\   # 行为与适配：意图包、涌现行为、记忆库（memory_v2）
+│   ├── astrbot_plugin_shihai_behavior\   # 行为与适配：意图包、涌现行为、记忆库、逐字归档
 │   ├── astrbot_plugin_shihai_guard\      # 一致性守护：四条不变量 + 审计
 │   ├── astrbot_plugin_shihai_tools\      # 免费 API 工具件
 │   ├── astrbot_plugin_shihai_sms\        # 短信/快递 WebHook
@@ -92,6 +97,11 @@ AstrBot_snowluma\
 ├── sim\                            # 数值仿真
 │   ├── shihai_sim.py               # 单文件，14 组检查 + 故障率标定
 │   └── out\                        # 15 张检查图 + metrics.json
+├── tools\                          # 测试、历史迁移、图表与 PPT 生成脚本
+│   ├── test_transcript_store.py         # 逐字归档单测（13 项）
+│   ├── migrate_livingmemory_transcript.py
+│   ├── make_ppt_charts.py
+│   └── build_ppt.py
 ├── front_end\                      # 心智观测台（浏览器实时看 z(t)）
 │   ├── 识海心智观测台.html           # 单文件前端，无构建依赖
 │   ├── serve.py                    # 本地服务 + AstrBot 反向代理（127.0.0.1:6191）
@@ -440,16 +450,18 @@ RVC 官方建议至少 **10 分钟低底噪语音**。每轮 60 段约几分钟�
 
 ## 九、仓库结构与分工约定
 
-仓内七个一级目录各管一摊，加新东西时请放对位置，不要往根目录堆：
+仓内各目录各管一摊，加新东西时请放对位置，不要往根目录堆：
 
 | 目录 | 内容 | 谁能改 |
 |---|---|---|
+| `core\` | 核心架构总览、术语表、设计决策（ADR）、调研 PPT——理解项目先读这里 | 集成者 |
 | `paper\` | 论文的 `.md` / `.html` / `.pdf` 三种形态，以及 `media\` 下的仿真配图 | 论文负责人 |
 | `sim\` | 论文对应的仿真代码（`shihai_sim.py`）与 `out\` 下的检查图、`metrics.json` | 论文/仿真负责人 |
+| `tools\` | 单元测试、历史迁移、图表与 PPT 生成等开发/测试脚本（非运行时加载） | 各脚本作者 |
 | `snowluma\` | QQ 端（SnowLuma）的配置与协议文档；日后整体改名为 `QQBot` | QQ 端负责人 |
 | `front_end\` | 识海观测台前端：`识海心智观测台.html`、`serve.py`、`.apk`、遥测脚本 | 前端负责人 |
 | `plugins\` | 各「识海」标识的 AstrBot 插件（`astrbot_plugin_shihai*` + 第三方 `clonetts`/`ai_cover`/`autobackup`） | 各插件作者 |
-| `scripts\` | Git 与机器人启动脚本、看门狗（`watchdog\`）、在线/离线模式 | 运维 |
+| `scripts\` | 机器人启动脚本、看门狗（`watchdog\`）、在线/离线模式 | 运维 |
 | `README.md` | 内部说明文档（对外发布前需再脱敏一轮） | 集成者 |
 
 **分支约定**：`main` 保持可运行、可演示的稳定版，**日常不再直接往 main 提交**。

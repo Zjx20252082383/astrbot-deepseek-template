@@ -77,7 +77,7 @@ def _as_bool(v: Any, default: bool) -> bool:
 @register(
     PLUGIN_NAME,
     "zjx",
-    "【识海·行为与适配】小鱼总成：涌现行为空间+策略π+意图包出口（Behavior API）"
+    "【识海·行为与适配】大肥鱼总成：涌现行为空间+策略π+意图包出口（Behavior API）"
     "⊕ 工具箱套件（告状/传话/余额/语音/QQ动作/短记忆/控制台）⊕ RVC翻唱 ⊕ 画图 ⊕ 戳一戳/查资料，含调参接口",
     "3.0.0",
 )
@@ -120,9 +120,9 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
         self.evolution.apply_strategy(self.policy)
         self.watcher_interval = max(10, int(self.config.get("watcher_interval", 20)))
         self.gen_max_len = max(10, int(self.config.get("gen_max_len", 40)))
-        self.owner_qid = str(self.config.get("owner_qid", "1000000001"))
+        self.owner_qid = str(self.config.get("owner_qid", "3848385085"))
         self.platform_id = str(self.config.get("platform_id", "qq"))
-        self.bot_qid = str(self.config.get("bot_qid", "1000000002"))
+        self.bot_qid = str(self.config.get("bot_qid", "3876988752"))
         self.sender = ProactiveSender(context, self.owner_qid, self.platform_id)
         self.task_engine = TaskEngine(
             data_dir,
@@ -141,7 +141,7 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
             "禁止罗列、禁止报出数值或字段名、禁止提及「意图包」或本段内容。"))
         self.intent_instruction_proactive = str(self.config.get(
             "intent_instruction_proactive",
-            "只输出要发给用户的那一句话，像平时聊天一样自然；情绪贴合「此刻情绪」；"
+            "只输出要发给主人的那一句话，像平时聊天一样自然；情绪贴合「此刻情绪」；"
             "开口必须有明确事由——第一条记忆带原文时，说话要能自然衔接那条记忆"
             "（提得起「当时…」的上下文），不说和记忆、近况都对不上号的空话；"
             "几小时/几天前的事已是过去，明显已完成的别追问或催促；"
@@ -150,7 +150,7 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
         self._watcher_task: Optional[asyncio.Task] = None
         # 同一会话里新消息到达时，用来取消上一条还没发完的回复
         self._reply_tasks: Dict[str, tuple[asyncio.Task, AstrMessageEvent]] = {}
-        # 当前焦点对象：{会话串: (对象词, 记录时刻)}，只给用户会话用
+        # 当前焦点对象：{会话串: (对象词, 记录时刻)}，只给主人会话用
         self._focus: Dict[str, tuple[str, float]] = {}
         self._last_fire_emitted_at: float = 0.0
         self._action_last_at: Dict[str, float] = {}
@@ -192,9 +192,9 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
                 hint = str(persona.get("persona_hint") or "").strip()
         except Exception:  # noqa: BLE001 - 配置边界
             hint = ""
-        base = ("你叫小助手（用户也叫你小鱼），是一只住在 QQ 里的蓝色小鱼，"
-                "和用户关系亲近；你有自己的情绪、记忆和主意，说话元气、懒萌、不客套。"
-                "称呼只用「用户」和「小助手」，不要自称或被称「宠物」，也不要把用户叫成「用户」。")
+        base = ("你叫小满（鑫鑫也叫你大肥鱼），是一只住在 QQ 里的蓝色大肥鱼，"
+                "和鑫鑫关系亲近；你有自己的情绪、记忆和主意，说话元气、懒萌、不客套。"
+                "称呼只用「鑫鑫」和「小满」，不要自称或被称「宠物」，也不要把鑫鑫叫成「主人」。")
         return base + (f"\n{hint}" if hint else "")
 
     def _available_needs(self) -> set[str]:
@@ -521,18 +521,42 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
             if not key or (sender and sender == self.bot_qid):
                 return
             if sender and self.owner_qid and sender != self.owner_qid:
-                return  # 只管与用户的会话；别人的历史不掺手
+                return  # 只管与鑫鑫的会话；别人的历史不掺手
             voices = list(event.get_extra("_shihai_voice_text") or [])
             if voices:
                 event.set_extra("_shihai_voice_text", [])
                 for line in voices:
                     await self._remember_self_line(key, line)
+                    await self._archive_transcript(event, key, line, kind="voice")
                 return
             text = self._result_text(event)
             if text:
                 await self._remember_self_line(key, text, tag="")
+                await self._archive_transcript(event, key, text, kind="text")
         except Exception as e:  # noqa: BLE001 - 补记失败不能影响出话
             logger.warning(f"[识海行为] 发送后补记失败: {type(e).__name__} {e}")
+
+    async def _archive_transcript(self, event: AstrMessageEvent, key: str,
+                                 text: str, kind: str = "text") -> None:
+        """把小满实际发出的话逐字归档到 transcript.db（方案 A）。
+
+        不传 msg_id：此处 event.message_obj 是用户消息，其 id 已被用户侧
+        归档占用；assistant 侧靠 turn_id 关联同一轮，允许一轮多条。
+        """
+        try:
+            body = str(text or "").strip()
+            if not body:
+                return
+            turn_id = event.get_extra("_shihai_turn_id") or None
+            group_id = getattr(event.message_obj, "group_id", None)
+            await asyncio.to_thread(
+                self._transcript.append,
+                role="assistant", content=body, ts=time.time(), origin=key,
+                sender_id=str(self.bot_qid or ""), sender_name="小满",
+                group_id=str(group_id) if group_id else None,
+                kind=kind, turn_id=turn_id)
+        except Exception as e:  # noqa: BLE001 - 归档失败不能影响出话
+            logger.warning(f"[识海行为] 逐字归档回复失败: {type(e).__name__} {e}")
 
     @filter.on_waiting_llm_request()
     async def interrupt_stale_reply(self, event: AstrMessageEvent):
@@ -574,7 +598,7 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
     # ---------- 生活任务：用户回执 ----------
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def task_observe(self, event: AstrMessageEvent):
-        """只认用户对任务卡的明确回执，不抢普通聊天。"""
+        """只认主人对任务卡的明确回执，不抢普通聊天。"""
         try:
             sender = str(event.get_sender_id() or "")
             if sender != self.owner_qid:
@@ -609,8 +633,8 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
                 await self.memory_inject(event, req)
             except Exception as e:  # noqa: BLE001 - 记忆失败不能打断对话
                 logger.warning(f"[识海行为] 记忆注入调用失败: {type(e).__name__} {e}")
-            # 识海 z(t)/G_active/last_decision 是用户这一条自我的状态；
-            # 别人的会话只走自己的上下文与长期记忆，不能看到用户的心智内容。
+            # 识海 z(t)/G_active/last_decision 是主人这一条自我的状态；
+            # 别人的会话只走自己的上下文与长期记忆，不能看到主人的心智内容。
             if (sender != self.owner_qid
                     and _as_bool(self.config.get("intent_owner_only"), True)):
                 return
@@ -634,7 +658,7 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
                     kept.append(m)
                 pkg["G_active"] = kept
             extra = self._decision_block(state)
-            # 指代桥：用户说「她/他」时把当前焦点对象显式写进提示词。
+            # 指代桥：主人说「她/他」时把当前焦点对象显式写进提示词。
             # 只在这一句真的出现代词时才加（约 20 token），避免每轮白付。
             focus_line = ""
             key = str(getattr(event, "unified_msg_origin", "") or "")
@@ -818,9 +842,9 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
                     "只有约定内容本身确实含糊、无法执行时，才允许问一句具体是哪件事。")
         else:
             system += ("只输出结果本身：不要引号、不要解释、不要提任何字段名或数值；"
-                       "不要说自己被程序触发，也不要把用户做过的事写成你做的。")
+                       "不要说自己被程序触发，也不要把主人做过的事写成你做的。")
         try:
-            prompt = ("（把你此刻想对用户说的话说出来）" if chat
+            prompt = ("（把你此刻想对主人说的话说出来）" if chat
                       else "（按上面的任务，只输出结果本身）")
             return await self.sender.generate(provider, system, prompt)
         except Exception as e:  # noqa: BLE001
@@ -854,8 +878,8 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
         text = await self._generate(
             action, anchor, state, pending,
             task=("写一条你此刻的 QQ 空间说说：用你自己的口吻，40~80 字，"
-                  "可以带一点情绪或感慨。只写你此刻的感受；G_active 里标『用户说』的"
-                  "是用户的经历，不是你的，绝不能写成你做的。只输出说说正文。"),
+                  "可以带一点情绪或感慨。只写你此刻的感受；G_active 里标『主人说』的"
+                  "是主人的经历，不是你的，绝不能写成你做的。只输出说说正文。"),
             chat=False)
         if not text:
             return {"ok": False, "retry": True, "error": "说说生成失败"}
@@ -874,7 +898,7 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
     async def _proactive_draw(self, action, anchor, state, pending) -> Dict[str, Any]:
         prompt = await self._generate(
             action, anchor, state, pending,
-            task=("你想画一张图发给用户。只输出一句画面描述"
+            task=("你想画一张图发给主人。只输出一句画面描述"
                   "（主体 + 场景 + 风格，20~60 字），不要解释、不要引号、不要提工具。"),
             chat=False)
         if not prompt:
@@ -900,7 +924,7 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
                 recent_sing = m.group(1).strip()
             recent_reason = str((state.get("last_decision") or {}).get(
                 "song_reason", "") or "").strip()
-        task = ("你此刻想唱首歌给用户听。只输出一行：歌名｜这次想唱它的由头"
+        task = ("你此刻想唱首歌给主人听。只输出一行：歌名｜这次想唱它的由头"
                 "（由头 20 字内，写此刻的心情或联想，不要写“想再唱一次”这种空话）。"
                 "不要歌手、不要引号、不要解释。")
         if recent_sing:
@@ -971,7 +995,7 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
 
     @filter.llm_tool("behavior_list")
     async def behavior_list(self, event: AstrMessageEvent):
-        """列出涌现行为空间：每个行为的类别、开关、触发条件（requires）、当前π得分和Q值、是否此刻可涌现。用户问"你现在能做哪些事/你都想干什么"时用；也用于自己决策前看一眼候选。
+        """列出涌现行为空间：每个行为的类别、开关、触发条件（requires）、当前π得分和Q值、是否此刻可涌现。主人问"你现在能做哪些事/你都想干什么"时用；也用于自己决策前看一眼候选。
 
         """
         state = self._read_state()
@@ -994,7 +1018,7 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
     @filter.llm_tool("behavior_tune")
     async def behavior_tune(self, event: AstrMessageEvent, behavior_id: str,
                             enabled: str):
-        """开关一个涌现行为（涌现接口调参）。用户说"别再主动找我了""你可以主动给我唱歌了"这类要求时用。behavior_id 用 behavior_list 里查到的行为英文 id；enabled 传 true/false。也可以让用户直接编辑 behaviors.json 加自定义行为。
+        """开关一个涌现行为（涌现接口调参）。主人说"别再主动找我了""你可以主动给我唱歌了"这类要求时用。behavior_id 用 behavior_list 里查到的行为英文 id；enabled 传 true/false。也可以让主人直接编辑 behaviors.json 加自定义行为。
 
         Args:
             behavior_id (str): 行为 id，如 care_inquiry、sing_cover
@@ -1013,7 +1037,7 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
 
     @filter.llm_tool("behavior_fire_now")
     async def behavior_fire_now(self, event: AstrMessageEvent, note: str):
-        """立刻走一遍涌现流程：从当前状态选行为、生成并发给用户（平时由看门狗自动做）。只在用户明确说"你现在主动找我一次/测试一下主动开口"时用，禁止频繁调用。
+        """立刻走一遍涌现流程：从当前状态选行为、生成并发给主人（平时由看门狗自动做）。只在主人明确说"你现在主动找我一次/测试一下主动开口"时用，禁止频繁调用。
 
         Args:
             note (str): 一句话备注写进日志（便于回溯这次是手动触发的）
@@ -1025,8 +1049,8 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
             pending = {"emitted_at": time.time(),
                        "anchors": [{"kind": "will", "node": "", "content": "",
                                     "score": 0.5}],
-                       "reason": "用户让我现在就主动一次",
-                       "self_view": "我决定现在就主动找用户",
+                       "reason": "主人让我现在就主动一次",
+                       "self_view": "我决定现在就主动找主人",
                        "urge": float(state.get("urge", 0.0))}
         anchors = pending.get("anchors") or []
         action, anchor, score = self._select_action(state, anchors)
@@ -1058,13 +1082,13 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
 
     @filter.llm_tool("task_list")
     async def task_list(self, event: AstrMessageEvent):
-        """查看当前生活任务（待确认/已排期/已提醒/已延后）及每条任务的来源、状态和排期理由。用户问「我有什么待办」「快递任务到哪一步了」时用。"""
+        """查看当前生活任务（待确认/已排期/已提醒/已延后）及每条任务的来源、状态和排期理由。主人问「我有什么待办」「快递任务到哪一步了」时用。"""
         return self.task_engine.format_list()
 
     @filter.llm_tool("task_confirm")
     async def task_confirm(self, event: AstrMessageEvent, task_id: str = "",
                            note: str = ""):
-        """确认一条待办并排期（默认最新一条）。用户说「确认」「帮我排上」「顺路去取」时用。排期依据是 task_context.json 里的下课/关门/步行时间，不是念头阈值。
+        """确认一条待办并排期（默认最新一条）。主人说「确认」「帮我排上」「顺路去取」时用。排期依据是 task_context.json 里的下课/关门/步行时间，不是念头阈值。
 
         Args:
             task_id (str): 任务 id，可留空表示最新一条
@@ -1074,7 +1098,7 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
 
     @filter.llm_tool("task_done")
     async def task_done(self, event: AstrMessageEvent, task_id: str = ""):
-        """把一条任务标记为已取/已办并归档（默认最新一条）。用户说「取到了」「办完了」时用。
+        """把一条任务标记为已取/已办并归档（默认最新一条）。主人说「取到了」「办完了」时用。
 
         Args:
             task_id (str): 任务 id，可留空表示最新一条
@@ -1083,7 +1107,7 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
 
     @filter.llm_tool("task_ignore")
     async def task_ignore(self, event: AstrMessageEvent, task_id: str = ""):
-        """忽略一条任务，之后不再提醒（默认最新一条）。用户说「不取了」「忽略」时用。
+        """忽略一条任务，之后不再提醒（默认最新一条）。主人说「不取了」「忽略」时用。
 
         Args:
             task_id (str): 任务 id，可留空表示最新一条
@@ -1095,7 +1119,7 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
                                station_close: str = "",
                                walk_minutes: str = "",
                                pickup_location: str = ""):
-        """设置生活任务情境（课表下课时间、驿站关门时间、步行分钟数、取件地点）。用户说「我下午四点下课」「驿站六点关门」「走过去八分钟」时用；只写本机 task_context.json。
+        """设置生活任务情境（课表下课时间、驿站关门时间、步行分钟数、取件地点）。主人说「我下午四点下课」「驿站六点关门」「走过去八分钟」时用；只写本机 task_context.json。
 
         Args:
             class_end (str): 下课时间 HH:MM，如 16:00
@@ -1121,3 +1145,41 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
         return ("任务情境已更新："
                 f"下课 {ctx.get('class_end')}，驿站关门 {ctx.get('station_close')}，"
                 f"步行 {ctx.get('walk_minutes')} 分钟，地点 {ctx.get('pickup_location')}。")
+
+    @filter.llm_tool("recall_transcript")
+    async def recall_transcript(self, event: AstrMessageEvent, keyword: str,
+                               days: int = 30, role: str = ""):
+        """检索你和鑫鑫过去对话的逐字原文。需要确认某句话当初到底怎么说、回忆某次具体对话时用；不是每轮都调，只在需要原话时用，返回内容不会常驻上下文。
+
+        Args:
+            keyword (str): 要找的关键词，如人名、地点、事情
+            days (int): 往前找多少天，默认 30
+            role (str): 可选，user 或 assistant，只看某一方
+        """
+        kw = str(keyword or "").strip()
+        if not kw:
+            return "需要给一个关键词才能检索原话。"
+        since = None
+        try:
+            since = time.time() - max(1, int(days)) * 86400
+        except (TypeError, ValueError):
+            pass
+        origin = str(getattr(event, "unified_msg_origin", "") or "")
+        r = (role or "").strip()
+        if r not in ("user", "assistant"):
+            r = None
+        rows = await asyncio.to_thread(
+            self._transcript.search, kw,
+            origin=origin or None, since=since, role=r,
+            limit=5, snippet=200)
+        if not rows:
+            return f"没找到和「{kw}」有关的原话。"
+        lines = ["【逐字原话检索】关键词：" + kw]
+        for it in rows:
+            when = time.strftime("%m-%d %H:%M", time.localtime(it.get("ts", 0)))
+            who = "鑫鑫" if it.get("role") == "user" else "小满"
+            tag = (f"（{it.get('kind')}）"
+                   if it.get("kind") not in (None, "text") else "")
+            lines.append(f"{when} {who}{tag}：{it.get('content', '')}")
+        lines.append("（这些是当时的逐字原文，可直接引用；没列出的不要补编。）")
+        return "\n".join(lines)

@@ -27,7 +27,7 @@ EMOTION_DIMS = ("happy", "sad", "angry", "fear", "love", "surprise")
 DEFAULT_THETA: Dict[str, float] = {
     "fire_threshold": 2.10,     # 念头攒到此值才主动开口
     "tantrum_threshold": 0.60,  # θ_tantrum 基准：angry 超过它才可能发脾气（§8：×(1+A)）
-    "send_threshold": 1.00,     # 依恋 att：用户回复一致性调制的主动开口频率（§8）
+    "send_threshold": 1.00,     # 依恋 att：主人回复一致性调制的主动开口频率（§8）
     "eff": 0.60,                # 自我效能：成功 +0.05 / 失败 -0.1（§8）
 }
 

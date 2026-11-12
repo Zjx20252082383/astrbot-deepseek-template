@@ -17,7 +17,7 @@ from astrbot.api import AstrBotConfig
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.message_components import File, Plain, Record, Reply
 from astrbot.api.star import Context, Star, register
-from astrbot.api.web import request as web_request
+from quart import request as web_request
 from astrbot.core.utils.astrbot_path import get_astrbot_plugin_data_path
 
 DEFAULT_FORM_VALUES = {

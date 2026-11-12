@@ -96,7 +96,7 @@
   },
   {
    "id": "sing_cover",
-   "label": "唱歌给用户听",
+   "label": "唱歌给主人听",
    "category": "对话与表达",
    "intent_type": "主动关心",
    "proactive": true,

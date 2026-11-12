@@ -2,11 +2,11 @@
 astrbot_plugin_shihai_sms - 识海·信使（短信收件人）
 
 手机短信通过 SmsForwarder 转发到本插件内置 HTTP 服务，
-插件解析快递信息（取件码/运单号/驿站/状态），主动发给用户。
+插件解析快递信息（取件码/运单号/驿站/状态），主动发给主人。
 
 流程：
   手机短信 → SmsForwarder App → HTTP POST http://电脑IP:6187/sms
-           → 本插件解析 → 快递入库 + 主动私聊上报用户
+           → 本插件解析 → 快递入库 + 主动私聊上报主人
 
 指令：
   /快递            查看最近的快递信息
@@ -105,7 +105,7 @@ class ExpressParser:
         }
 
 
-@register("shihai_sms", "zjx", "识海·信使（短信→快递→报用户）", "1.0.0")
+@register("shihai_sms", "zjx", "识海·信使（短信→快递→报主人）", "1.0.0")
 class ShihaiSmsPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
@@ -282,11 +282,11 @@ class ShihaiSmsPlugin(Star):
             logger.warning(f"[识海信使] 上报失败: {type(e).__name__} {e}")
         return web.json_response({"code": 0, "msg": "ok"})
 
-    # ──────────────── 上报用户 ────────────────
+    # ──────────────── 上报主人 ────────────────
 
     async def _report(self, rec: dict, express: dict | None):
         text = self._format_express(rec) if express else (
-            f"用户，收到一条短信（{_now_str()}）\n来自 {rec['sender']}：{rec['text'][:120]}"
+            f"主人，收到一条短信（{_now_str()}）\n来自 {rec['sender']}：{rec['text'][:120]}"
             if self.report_other else ""
         )
         if not text:
@@ -312,7 +312,7 @@ class ShihaiSmsPlugin(Star):
 
     def _format_express(self, rec: dict) -> str:
         e = rec["express"]
-        lines = [f"用户，有快递消息啦（{_now_str()}）"]
+        lines = [f"主人，有快递消息啦（{_now_str()}）"]
         head = f"📦 {e['carrier']}"
         if e["waybill"]:
             head += f" · 单号 {e['waybill']}"
@@ -384,8 +384,8 @@ class ShihaiSmsPlugin(Star):
 
     @filter.llm_tool(name="get_recent_express")
     async def tool_get_recent_express(self, event: AstrMessageEvent):
-        """查询用户最近收到的快递信息（取件码、运单号、快递状态）。
-        当用户问「有没有快递」「我的包裹到哪了」「取件码是多少」等时调用本工具。"""
+        """查询主人最近收到的快递信息（取件码、运单号、快递状态）。
+        当主人问「有没有快递」「我的包裹到哪了」「取件码是多少」等时调用本工具。"""
         express_recs = [r for r in self._records if r.get("express")]
         if not express_recs:
             return "最近 30 天内没有收到任何快递相关的短信。"

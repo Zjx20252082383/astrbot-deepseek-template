@@ -1,6 +1,6 @@
 name: astrbot_plugin_shihai_sms
 display_name: 【识海·信使】短信收件人
-desc: 手机短信 → SmsForwarder 转发到本插件 HTTP 服务 → 解析快递（取件码/运单号/驿站/状态）→ 主动私聊上报用户，支持 /快递 /短信 查询与 LLM 工具
+desc: 手机短信 → SmsForwarder 转发到本插件 HTTP 服务 → 解析快递（取件码/运单号/驿站/状态）→ 主动私聊上报主人，支持 /快递 /短信 查询与 LLM 工具
 version: 1.0.0
 author: zjx
 repo: local

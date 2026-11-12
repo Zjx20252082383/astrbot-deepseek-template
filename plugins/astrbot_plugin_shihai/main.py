@@ -65,12 +65,12 @@ class ShihaiPlugin(Star):
         self.tick_seconds = max(30, int(config.get("tick_seconds", 60)))
         self.proactive_enabled = _as_bool(config.get("proactive_enabled"), False)
         self.owner_only_feedback = _as_bool(config.get("owner_only_feedback"), True)
-        # 图谱/情绪场是用户这一条自我的长期状态；默认不收别人会话的文本，
-        # 否则群友的话会被写进 G_active，再被注入回用户的对话里。
+        # 图谱/情绪场是主人这一条自我的长期状态；默认不收别人会话的文本，
+        # 否则群友的话会被写进 G_active，再被注入回主人的对话里。
         self.owner_only_perception = _as_bool(
             config.get("owner_only_perception"), True)
-        self.owner_qid = str(config.get("owner_qid", "1000000001"))
-        self.bot_qid = str(config.get("bot_qid", "1000000002"))
+        self.owner_qid = str(config.get("owner_qid", "3848385085"))
+        self.bot_qid = str(config.get("bot_qid", "3876988752"))
 
         self._tick_task: Optional[asyncio.Task] = None
 
@@ -107,7 +107,7 @@ class ShihaiPlugin(Star):
             if sender and sender == self.bot_qid:
                 return  # 自我回声不进情绪场
             if self.owner_only_perception and sender != self.owner_qid:
-                return  # 别人的会话只走自己的上下文/记忆，不写用户的图谱
+                return  # 别人的会话只走自己的上下文/记忆，不写主人的图谱
             text = str(req.prompt or "").strip()
             if text:
                 allow_feedback = (not self.owner_only_feedback
@@ -338,7 +338,7 @@ class ShihaiPlugin(Star):
 
     @filter.llm_tool("shihai_get_state")
     async def shihai_get_state(self, event: AstrMessageEvent):
-        """查看自己的识海状态：当前情绪场、念头强度、有效开口阈值、目标向量、行为Q值、最近想起的记忆、图谱规模。想汇报自己的状态、回顾"我为什么想找用户说话"、或拿不准自己此刻心境时用。回复里不要照搬数值，翻译成自然的人话。
+        """查看自己的识海状态：当前情绪场、念头强度、有效开口阈值、目标向量、行为Q值、最近想起的记忆、图谱规模。想汇报自己的状态、回顾"我为什么想找主人说话"、或拿不准自己此刻心境时用。回复里不要照搬数值，翻译成自然的人话。
 
         """
         snap = self.engine.snapshot()
@@ -385,7 +385,7 @@ class ShihaiPlugin(Star):
 
     @filter.llm_tool("shihai_tune")
     async def shihai_tune(self, event: AstrMessageEvent, key: str, value: str):
-        """调整识海核心动力学参数（调参接口，热生效并持久化）。用户说"把你想我的频率调高点""你情绪别退那么快"这类要求时用它。key=参数名，value=数字。常用参数：fire_threshold(开口阈值,论文2.10)、base_rate(念头基础增速)、tau_love(依恋消退小时数,默认24)、tau_happy(开心消退小时数)、kappa(刺激增益)、eta_relax(情绪惯性)、gamma_hebbian(记忆联结学习率)、alpha_coupling(情绪-记忆耦合,论文3.0)、O/C/E/A/N(大五人格0~1)、eff(自我效能)。value 传 "list" 可列出全部参数与取值范围。改完告知用户改了什么、大概什么效果。
+        """调整识海核心动力学参数（调参接口，热生效并持久化）。主人说"把你想我的频率调高点""你情绪别退那么快"这类要求时用它。key=参数名，value=数字。常用参数：fire_threshold(开口阈值,论文2.10)、base_rate(念头基础增速)、tau_love(依恋消退小时数,默认24)、tau_happy(开心消退小时数)、kappa(刺激增益)、eta_relax(情绪惯性)、gamma_hebbian(记忆联结学习率)、alpha_coupling(情绪-记忆耦合,论文3.0)、O/C/E/A/N(大五人格0~1)、eff(自我效能)。value 传 "list" 可列出全部参数与取值范围。改完告知主人改了什么、大概什么效果。
 
         Args:
             key (str): 参数名，或传 "list" 查看全部可调参数
@@ -416,7 +416,7 @@ class ShihaiPlugin(Star):
     @filter.llm_tool("shihai_inject_emotion")
     async def shihai_inject_emotion(self, event: AstrMessageEvent,
                                     emotion: str, intensity: str, reason: str):
-        """给情绪场注入一次外部刺激 s_ext（论文§5.1）。被用户夸了、遇到难忘的事、唱歌翻车了、被冷落了……发生明显的情绪事件时用它让心境真实变化。回复里不要提"注入/刺激"这类词。
+        """给情绪场注入一次外部刺激 s_ext（论文§5.1）。被主人夸了、遇到难忘的事、唱歌翻车了、被冷落了……发生明显的情绪事件时用它让心境真实变化。回复里不要提"注入/刺激"这类词。
 
         Args:
             emotion (str): happy / sad / angry / fear / love / surprise 之一
@@ -442,7 +442,7 @@ class ShihaiPlugin(Star):
 
     @filter.llm_tool("shihai_dream_now")
     async def shihai_dream_now(self, event: AstrMessageEvent):
-        """立刻做一次梦境固化：重放今天的记忆、强化共激活边、修剪弱边（论文§7.3）。平时凌晨自动做；用户说"整理一下记忆"时用。
+        """立刻做一次梦境固化：重放今天的记忆、强化共激活边、修剪弱边（论文§7.3）。平时凌晨自动做；主人说"整理一下记忆"时用。
 
         """
         result = self.engine.dream()

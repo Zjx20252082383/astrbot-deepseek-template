@@ -70,7 +70,7 @@ class AdaptEngine:
     ) -> List[Dict[str, Any]]:
         """检测这条消息里的反馈信号，直接更新 θ/Q/g。返回事件列表（可解释性）。
 
-        extra_positive/extra_negative：心理插件（shihai_psyche）扩展的用户口头禅词典。
+        extra_positive/extra_negative：心理插件（shihai_psyche）扩展的主人口头禅词典。
         """
         events: List[Dict[str, Any]] = []
         text = (text or "").strip()
@@ -156,7 +156,7 @@ class AdaptEngine:
         if not strong_neg:
             state.streak_gate = clamp(
                 state.streak_gate - self.streak_recover * 0.5 * scale, 0.0, 6.0)
-            # 兜底：只要用户开口了，挂起的主动消息就算有了回应，静默惩罚不再触发
+            # 兜底：只要主人开口了，挂起的主动消息就算有了回应，静默惩罚不再触发
             state.last_proactive_replied = True
         return events
 

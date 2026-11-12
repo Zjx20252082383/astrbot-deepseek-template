@@ -1,4 +1,4 @@
-"""小鱼画图插件：通义万相文生图（阿里云百炼，代金券抵扣）"""
+"""大肥鱼画图插件：通义万相文生图（阿里云百炼，代金券抵扣）"""
 
 import asyncio
 import json
@@ -107,7 +107,7 @@ class DrawMixin:
 
     @filter.llm_tool()
     async def dafeiyu_draw(self, event: AstrMessageEvent, prompt: str):
-        """画一张图发给用户。用户说"画一张XX"、"给我画XX"、想要配图/插画/头像时调用。
+        """画一张图发给主人。主人说"画一张XX"、"给我画XX"、想要配图/插画/头像时调用。
         prompt 写具体的画面描述（主体 + 场景 + 风格），越具体画得越好，不要写真实人名。
 
         Args:
@@ -126,4 +126,4 @@ class DrawMixin:
             return "画好了，图片已经发出去。"
         except Exception as e:  # noqa: BLE001 - send boundary
             logger.warning(f"[dafeiyu_draw] 图片发送失败: {e}")
-            return "画画好了，但发送失败了，请用户稍后再试。"
+            return "画画好了，但发送失败了，请主人稍后再试。"

@@ -25,7 +25,7 @@ _E_CN = {"happy": "开心", "sad": "难过", "angry": "生气",
          "fear": "害怕", "love": "依恋", "surprise": "惊讶"}
 
 _MOTIVE_CN = {
-    "g_relation": "维持与用户的关系",
+    "g_relation": "维持与主人的关系",
     "g_memory": "整理巩固记忆",
     "g_self": "自我表达与成长",
     "g_avoid": "回避冲突、避免被讨厌",
@@ -82,9 +82,9 @@ def assemble(state: Dict[str, Any], intent_type: str = "被动应答",
 
 
 def _who(row: Dict[str, Any]) -> str:
-    """给记忆标主语：用户说的话不是"我"的经历，避免生成时把用户的事写成自己的。"""
+    """给记忆标主语：主人说的话不是"我"的经历，避免生成时把主人的事写成自己的。"""
     sender = str(row.get("sender", "owner") or "owner")
-    return "我说的：" if sender == "bot" else "用户说："
+    return "我说的：" if sender == "bot" else "主人说："
 
 
 def format(pkg: Dict[str, Any]) -> str:
