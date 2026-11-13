@@ -176,18 +176,19 @@ def mood_state(e: dict) -> float:
     return clamp(1.0 + 0.5 * pos - 0.6 * neg, 0.2, 1.5)
 
 
-def urge_rhs(e: dict, a_max: float, hour: float, guards: bool = True) -> float:
+def urge_rhs(e: dict, a_max: float, hour: float, guards: bool = True,
+             psi_e: float = PSI_E) -> float:
     fit = timing_fit(int(hour) % 24, guards)
     if fit <= 0.0:
         return 0.0
-    base = BASE_RATE * (0.5 + 0.5 * PSI_E)
+    base = BASE_RATE * (0.5 + 0.5 * clamp(float(psi_e), 0.0, 1.0))
     return base * interest(e, a_max) * fit * mood_state(e)
 
 
 def urge_rk4(u: float, e: dict, a_max: float, t_h: float, dt: float,
-             guards: bool = True) -> float:
+             guards: bool = True, psi_e: float = PSI_E) -> float:
     def f(u_, h_):
-        return urge_rhs(e, a_max, h_, guards)
+        return urge_rhs(e, a_max, h_, guards, psi_e=psi_e)
     k1 = f(u, t_h)
     k2 = f(u + 0.5 * dt * k1, t_h + 0.5 * dt)
     k3 = f(u + 0.5 * dt * k2, t_h + 0.5 * dt)
@@ -256,12 +257,14 @@ class MindSim:
     """
 
     def __init__(self, seed: int = SEED, guards: bool = True, dt: float = DT_LONG,
-                 T: float = 200.0, psi_n: float = PSI_N, msg_rate: float = 0.5):
+                 T: float = 200.0, psi_n: float = PSI_N, msg_rate: float = 0.5,
+                 psi_e: float = PSI_E):
         self.rng = np.random.default_rng(seed)
         self.guards = guards
         self.dt = dt
         self.T = T
         self.psi_n = psi_n
+        self.psi_e = psi_e
         self.msg_rate = msg_rate          # 清醒时段消息到达率（条/h）
         self.e = {d: 0.10 for d in DIMS}
         self.a = {"ev1": 0.3, "ev2": 0.2, "ev3": 0.1}   # 3 个事件节点
@@ -382,7 +385,8 @@ class MindSim:
         if sup:
             self.u = max(0.0, self.u - 0.1 * self.dt)
         else:
-            self.u = urge_rk4(self.u, self.e, a_max, self.t, self.dt, self.guards)
+            self.u = urge_rk4(self.u, self.e, a_max, self.t, self.dt, self.guards,
+                              psi_e=self.psi_e)
         self._feedback_update()
         self.gate_max = max(self.gate_max, self.gate)
         # ---- 决策点 ----
@@ -800,6 +804,70 @@ def c08_neuroticism() -> dict:
             "half_life_N0.8_vs_N0": round(measured[8] / measured[0], 3)}
 
 
+def c16_extroversion(seed: int = SEED) -> dict:
+    """E 维主动开口：同一输入流、同一随机种子，只改 ψ_E，看越阈次数是否同向。
+
+    这不是单点算式验证，而是端到端行为验证：ψ_E 只改念头累积速率，但累积速率
+    要经过阈值、冷落门、Ego 分段许可才能变成"开口"。若 ψ_E 抬高的增速在整条链上
+    仍单调地变成更多开口，说明人格确实进入了行为，而不是只进了某个中间变量。
+
+    单 seed 下开口次数会抖动（200h 内只有十来次，一次扰动就能挪动计数），
+    所以这里对 5 个 seed 取均值再判趋势，同时把逐 seed 明细一并报出，
+    不拿聚合值掩盖单次散布。
+    """
+    Es = [0.1, 0.3, 0.5, 0.7, 0.9]
+    seeds = [seed, seed + 1, seed + 2, seed + 3, seed + 4]
+    per_seed: dict[float, list[int]] = {}
+    first_t: dict[float, list[float]] = {}
+    for E in Es:
+        per_seed[E], first_t[E] = [], []
+        for sd in seeds:
+            sim = MindSim(seed=sd, guards=True, dt=DT_LONG, T=200.0, psi_e=E)
+            sim.run()
+            per_seed[E].append(len(sim.fires))
+            first_t[E].append(round(float(sim.fires[0]["t"]), 2) if sim.fires else -1.0)
+
+    mean_fires = [round(float(np.mean(per_seed[E])), 2) for E in Es]
+    mean_first = [round(float(np.mean(first_t[E])), 2) for E in Es]
+    lo = [min(per_seed[E]) for E in Es]
+    hi = [max(per_seed[E]) for E in Es]
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(8.0, 3.2))
+    x = np.arange(len(Es))
+    ax1.bar(x, mean_fires, color=C_MAIN, alpha=0.85, width=0.55,
+            yerr=[np.array(mean_fires) - np.array(lo), np.array(hi) - np.array(mean_fires)],
+            capsize=3, error_kw={"lw": 0.8, "ecolor": "0.45"})
+    ax1.set_xticks(x)
+    ax1.set_xticklabels([str(E) for E in Es])
+    ax1.set_xlabel("ψ_E（外向性）")
+    ax1.set_ylabel("200h 内越阈开口次数（5 seed 均值）")
+    ax1.set_title("同一输入流下，ψ_E 越高开口越多")
+    for i, v in enumerate(mean_fires):
+        ax1.text(i, v + 0.6, f"{v:g}", ha="center", fontsize=8)
+    ax2.plot(x, mean_first, "o-", color=C_ORANGE, lw=1.5, ms=5, label="首次开口时刻（均值）")
+    ax2.set_xticks(x)
+    ax2.set_xticklabels([str(E) for E in Es])
+    ax2.set_xlabel("ψ_E（外向性）")
+    ax2.set_ylabel("首次开口（小时）")
+    ax2.set_title("ψ_E 越高，第一次主动开口越早")
+    ax2.invert_yaxis()
+    ax2.legend(fontsize=8)
+    fig.suptitle("检查16 E 维主动开口（单变量对照，5 seed）", y=1.04, fontsize=11)
+    _savefig(fig, "fig_16_extroversion.png")
+
+    mono = all(b >= a - 1e-9 for a, b in zip(mean_fires, mean_fires[1:]))
+    mono_first = all(b <= a + 1e-9 for a, b in zip(mean_first, mean_first[1:]))
+    ratio = mean_fires[-1] / max(mean_fires[0], 1e-9)
+    return {"pass": bool(mono and mono_first and ratio > 1.2),
+            "psi_e_swept": Es, "fires_mean": mean_fires,
+            "fires_per_seed": {str(E): per_seed[E] for E in Es},
+            "fires_min": lo, "fires_max": hi,
+            "first_fire_mean_h": mean_first,
+            "mean_monotone": bool(mono), "first_fire_monotone": bool(mono_first),
+            "fires_E0.9_over_E0.1": round(float(ratio), 3),
+            "criterion": "5 seed 均值随 ψ_E 单调不减、首次开口单调提前，且 0.9/0.1 比值 > 1.2"}
+
+
 def c09_threshold_saturation() -> dict:
     """阈值饱和：连续冷落到上限 3.5 后经高位放行仍开口，正反馈回落，无死锁。"""
     sim = MindSim(seed=SEED, guards=True, dt=0.02, T=120.0, msg_rate=0.0)
@@ -1208,11 +1276,12 @@ def run_all(seed: int) -> dict:
     results["C13_Hebbian两道门"] = c13_hebbian_gates(seed)
     results["C14_复习防作弊"] = c14_recall_gate(seed)
     results["C15_体检日归档"] = c15_sweep_tiers(seed)
+    results["C16_E维主动开口"] = c16_extroversion(seed)
     comp = static_compile()
 
     unit = ["C01_情绪场弛豫", "C03_Hebbian", "C04_念头累积", "C07_差异化衰减",
             "C08_N维恐惧消退", "C10_极端边界", "C13_Hebbian两道门",
-            "C14_复习防作弊"]
+            "C14_复习防作弊", "C16_E维主动开口"]
     scen = ["C02_情绪-记忆耦合", "C05_200h长时稳定", "C06_参数扰动",
             "C09_阈值饱和", "C11_自我调节", "C15_体检日归档"]
     unit_pass = sum(1 for k in unit if results[k]["pass"])

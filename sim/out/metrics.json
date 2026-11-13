@@ -1,8 +1,8 @@
 {
  "schema": "shihai-sim/1.0",
- "generated_at": "2026-11-10 22:51:54",
+ "generated_at": "2026-11-13 11:09:22",
  "seed": 20261110,
- "python": "3.13.16",
+ "python": "3.12.11",
  "integral": {
   "method": "RK4 + 投影钳位（离散映射：图谱/Hebbian）",
   "dt_fast_h": 0.05,
@@ -141,6 +141,85 @@
    },
    "still_inline_day30": 208,
    "policy": "只移不删（archived → event_archive.json），3/7/15 天各扫一次"
+  },
+  "C16_E维主动开口": {
+   "pass": true,
+   "psi_e_swept": [
+    0.1,
+    0.3,
+    0.5,
+    0.7,
+    0.9
+   ],
+   "fires_mean": [
+    11.0,
+    12.6,
+    14.0,
+    17.2,
+    17.8
+   ],
+   "fires_per_seed": {
+    "0.1": [
+     10,
+     11,
+     11,
+     12,
+     11
+    ],
+    "0.3": [
+     14,
+     11,
+     10,
+     15,
+     13
+    ],
+    "0.5": [
+     13,
+     16,
+     16,
+     15,
+     10
+    ],
+    "0.7": [
+     19,
+     13,
+     18,
+     17,
+     19
+    ],
+    "0.9": [
+     22,
+     15,
+     18,
+     19,
+     15
+    ]
+   },
+   "fires_min": [
+    10,
+    10,
+    10,
+    13,
+    15
+   ],
+   "fires_max": [
+    12,
+    15,
+    16,
+    19,
+    22
+   ],
+   "first_fire_mean_h": [
+    20.4,
+    18.95,
+    17.85,
+    17.1,
+    16.4
+   ],
+   "mean_monotone": true,
+   "first_fire_monotone": true,
+   "fires_E0.9_over_E0.1": 1.618,
+   "criterion": "5 seed 均值随 ψ_E 单调不减、首次开口单调提前，且 0.9/0.1 比值 > 1.2"
   }
  },
  "fault_rate": {
@@ -178,9 +257,9 @@
   }
  },
  "summary": {
-  "unit_checks": "8/8",
+  "unit_checks": "9/9",
   "scenario_checks": "6/6",
-  "all_checks": "14/14",
+  "all_checks": "15/15",
   "static_compile": "13/13",
   "total_fault_rate": 0.065,
   "baseline_fault_rate": 1.54,
@@ -259,7 +338,8 @@
   "fig_12_fault_rate.png",
   "fig_13_hebbian_gates.png",
   "fig_14_recall_gate.png",
-  "fig_15_sweep_tiers.png"
+  "fig_15_sweep_tiers.png",
+  "fig_16_extroversion.png"
  ],
  "notes": [
   "所有结论只在本文参数与步长内成立（§15.1 解释边界）。",

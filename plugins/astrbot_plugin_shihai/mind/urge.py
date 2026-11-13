@@ -87,7 +87,8 @@ class UrgeEngine:
         fit = self.timing_fit(hour)
         if fit <= 0.0:
             return u  # 安静时段冻结（不清零，醒来接着攒）
-        # §8：p_initiate ∝ E（外向性越高越主动找人说话）
+        # §6.1：E 以 (0.5+0.5·E) 缩放 u 的累积速率，不是发送概率。
+        # 写成 p_initiate = p0·E 是错的：E 若按 1–5 分代入会得出大于 1 的概率
         e_scale = clamp(float(self.psi_ref.get("E", 0.6)), 0.0, 1.0)
         base = self.base_rate * (0.5 + 0.5 * e_scale)
         du = base * self.interest(e, recent_max_a) * fit * self.mood_state(e) * dt_hours
