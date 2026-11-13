@@ -1,0 +1,41 @@
+{
+ "trials": 4000,
+ "seed": 20261110,
+ "gamma": 0.06,
+ "near_window_h": 24.0,
+ "near_scale": 0.2,
+ "groups": {
+  "Full": {
+   "cross_subject_candidates": 1493,
+   "cross_subject_edges": 0,
+   "source_confusion_rate": 0.0,
+   "near_pair_candidates": 414,
+   "near_pair_mean_delta": 0.012,
+   "far_pair_mean_delta": 0.06
+  },
+  "w/o cross-subject gate": {
+   "cross_subject_candidates": 1493,
+   "cross_subject_edges": 1493,
+   "source_confusion_rate": 1.0,
+   "near_pair_candidates": 414,
+   "near_pair_mean_delta": 0.012,
+   "far_pair_mean_delta": 0.06
+  },
+  "w/o temporal penalty": {
+   "cross_subject_candidates": 1493,
+   "cross_subject_edges": 0,
+   "source_confusion_rate": 0.0,
+   "near_pair_candidates": 414,
+   "near_pair_mean_delta": 0.06,
+   "far_pair_mean_delta": 0.06
+  },
+  "w/o both gates": {
+   "cross_subject_candidates": 1493,
+   "cross_subject_edges": 1493,
+   "source_confusion_rate": 1.0,
+   "near_pair_candidates": 414,
+   "near_pair_mean_delta": 0.06,
+   "far_pair_mean_delta": 0.06
+  }
+ }
+}
