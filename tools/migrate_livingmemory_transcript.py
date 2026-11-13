@@ -12,7 +12,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-ROOT = Path(r"E:\Users\zjx\Desktop\deepseek接QQ小号")
+ROOT = Path(__file__).resolve().parents[1]  # 仓库根（= AstrBot 运行根），换机器无需改
 PLUGIN = ROOT / "data" / "plugins" / "astrbot_plugin_shihai_behavior"
 SRC = ROOT / "data" / "plugin_data" / "astrbot_plugin_livingmemory" / "conversations.db"
 DST = ROOT / "data" / "plugin_data" / "astrbot_plugin_qq_toolbox" / "memory_v2" / "transcript.db"

@@ -8,7 +8,7 @@ import pathlib
 from statistics import median
 
 LOG = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else
-                   r"E:\Users\zjx\Desktop\deepseek接QQ小号\data\logs\astrbot.log")
+                   pathlib.Path(__file__).resolve().parents[1] / "data" / "logs" / "astrbot.log")
 
 ROW = re.compile(
     r"sys_chars=(\d+) ctx_msgs=(\d+) ctx_chars=(\d+) "

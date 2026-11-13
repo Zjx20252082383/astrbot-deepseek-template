@@ -5,7 +5,7 @@
 模板里已删除原作者的全部隐私数据（API Key、人格提示词、聊天记录、日记、日志、QQ 号、WebUI 密码），你只需要在 4 个地方填入自己的信息即可跑通。
 
 > **本分发包的实际结构**（与下文“原模板目录”不同处以此为准）：
-> `plugins\` 九个插件直接放在顶层；`paper\` 是论文源（md/html/css/media/PDF）；`sim\` 是数值仿真脚本与 `out\`（15 张图 + metrics.json）；`scripts\` 是启动脚本与 `scripts\watchdog\`；`snowluma\` 只保留 `config\`（runtime.json / ui.json）与协议文档，**不含 `node.exe`**，SnowLuma 本体需按官方方式自行安装；AstrBot 的 `data\`（配置库、插件运行数据、日志）**不在包内**，首次启动自动生成。
+> `plugins\` 九个插件直接放在顶层；`paper\` 是论文源（md/html/css/media/PDF）；`sim\` 是数值仿真脚本与 `out\`（15 张图 + metrics.json）；`scripts\` 是启动脚本与 `watchdog\`；`snowluma\` 只保留 `config\`（runtime.json / ui.json）与协议文档，**不含 `node.exe`**，SnowLuma 本体需按官方方式自行安装；AstrBot 的 `data\`（配置库、插件运行数据、日志）**不在包内**，首次启动自动生成。
 
 ---
 
@@ -293,9 +293,9 @@ class HelloPlugin(Star):
   - 路径约定：`serve.py` 默认把"上一级目录 + `data\`"当作 AstrBot 运行目录，所以把 `front_end\` 放到 `data\` 同级即可；放在别处时用环境变量 `SHIHAI_DATA_ROOT` 指向含 `data\` 的目录，用 `ASTRBOT_BASE` 指向 WebUI 地址。
   - 令牌：`serve_config.json` 里的 `token` 在模板中已清空，需要的话用环境变量 `SHIHAI_TOKEN`（或自己填回去）——它同时用于页面的 Bearer 校验和短信 WebHook；`host` 默认 `0.0.0.0`，只想本机看就改回 `127.0.0.1`。
 - **识海·信使（短信→快递上报）**：手机装 SmsForwarder App，WebHook 填 `http://电脑局域网IP:6187/sms` + 插件配置里的 Token；快递短信会自动解析并私聊上报用户。电脑端需放行 6187 端口入站（管理员 PowerShell：`netsh advfirewall firewall add rule name="ShihaiSms 6187" dir=in action=allow protocol=TCP localport=6187`）。
-- **看门狗**（`scripts\watchdog\`）：定时检查 AstrBot(6199)/SnowLuma(5099) 端口，掉线自动拉起。用管理员 PowerShell 一条命令注册（每 3 分钟跑一次）：
+- **看门狗**（`watchdog\`）：定时检查 AstrBot(6199)/SnowLuma(5099) 端口，掉线自动拉起。用管理员 PowerShell 一条命令注册（每 3 分钟跑一次）：
   ```
-  schtasks /Create /TN "BotWatchdog" /TR "wscript.exe E:\你的路径\astrbot-deepseek-template\scripts\watchdog\watchdog_hidden.vbs" /SC MINUTE /MO 3 /F
+  schtasks /Create /TN "BotWatchdog" /TR "wscript.exe E:\你的路径\astrbot-deepseek-template\watchdog\watchdog_hidden.vbs" /SC MINUTE /MO 3 /F
   ```
 - **在线/离线模式**：`离线模式.bat` 会关闭 QQ 并把主动开口的行为插件（shihai_behavior）挪出插件目录暂存（省 token，定时任务如写日记仍运行），`在线模式.bat` 恢复。注意：恢复后 QQ 需要你手动打开并登录，SnowLuma 会自动注入已登录的 QQ。
 - **AI 翻唱**：详见下方「让她开口说话与唱歌」一节。
@@ -306,14 +306,14 @@ class HelloPlugin(Star):
 | 脚本 | 干什么 | 怎么用 / 前置条件 | 什么时候用 |
 |---|---|---|---|
 | `启动机器人.bat` | 一键启动：新窗口跑 SnowLuma → 等 5 秒 → 当前窗口前台跑 AstrBot | 双击即可。前置：已 `pip install astrbot`；SnowLuma 已在 WebUI(5099) 登录过 QQ | 日常启动、想看 AstrBot 日志时 |
-| `snowluma_start.bat` | 单独启动 QQ 客户端（自动接受 EULA/隐私协议，日志写到 `scripts\watchdog\snowluma_boot.log`） | 双击或被其它脚本调用；无需管理员权限 | 只想登录/重启 QQ 端 |
-| `astrbot_start.bat` | 单独启动 AstrBot（日志写到 `scripts\watchdog\astrbot_boot.log`） | 需要 `astrbot` 在 PATH | 配合 vbs/计划任务后台运行 |
+| `snowluma_start.bat` | 单独启动 QQ 客户端（自动接受 EULA/隐私协议，日志写到 `watchdog\snowluma_boot.log`） | 双击或被其它脚本调用；无需管理员权限 | 只想登录/重启 QQ 端 |
+| `astrbot_start.bat` | 单独启动 AstrBot（日志写到 `watchdog\astrbot_boot.log`） | 需要 `astrbot` 在 PATH | 配合 vbs/计划任务后台运行 |
 | `snowluma_service_hidden.vbs` | 隐藏窗口静默启动 SnowLuma | 双击即在后台运行；主要给计划任务/看门狗调用 | 开机自启、无人值守 |
 | `astrbot_service_hidden.vbs` | 隐藏窗口静默启动 AstrBot | 同上 | 同上 |
-| `在线模式.bat` / `离线模式.bat` | 调用 `scripts\watchdog\mode.ps1` 切换模式：离线 = 停 SnowLuma + 把识海行为插件挪出插件目录暂存 + 重启 AstrBot；在线 = 恢复插件 + 拉起 SnowLuma + 重启 AstrBot | 双击；离线后 SnowLuma 重启需要重新打开 | 出门/睡觉省 token 用离线 |
-| `scripts\watchdog\watchdog.ps1` | 看门狗一轮检查：AstrBot 端口 6199 不通 → 拉 `astrbot_service_hidden.vbs`；SnowLuma WebUI 5099 不通 → 拉 `snowluma_service_hidden.vbs`；`mode.txt` 为 offline 时不拉 SnowLuma；带 4~5 分钟冷却防反复拉起 | 不要手动反复跑，交给计划任务每 3 分钟跑一次（见下） | 长期无人值守 |
-| `scripts\watchdog\watchdog_hidden.vbs` | 隐藏运行 `watchdog.ps1` | 用计划任务注册：`schtasks /Create /TN "BotWatchdog" /TR "wscript.exe <完整路径>\scripts\watchdog\watchdog_hidden.vbs" /SC MINUTE /MO 3 /F`（需管理员 PowerShell） | 同上 |
-| `scripts\watchdog\mode.ps1` | 在线/离线切换逻辑本体（两个模式 bat 只是壳） | `powershell -File mode.ps1 -Mode online\|offline` | 脚本化控制时 |
+| `在线模式.bat` / `离线模式.bat` | 调用 `watchdog\mode.ps1` 切换模式：离线 = 停 SnowLuma + 把识海行为插件挪出插件目录暂存 + 重启 AstrBot；在线 = 恢复插件 + 拉起 SnowLuma + 重启 AstrBot | 双击；离线后 SnowLuma 重启需要重新打开 | 出门/睡觉省 token 用离线 |
+| `watchdog\watchdog.ps1` | 看门狗一轮检查：AstrBot 端口 6199 不通 → 拉 `astrbot_service_hidden.vbs`；SnowLuma WebUI 5099 不通 → 拉 `snowluma_service_hidden.vbs`；`mode.txt` 为 offline 时不拉 SnowLuma；带 4~5 分钟冷却防反复拉起 | 不要手动反复跑，交给计划任务每 3 分钟跑一次（见下） | 长期无人值守 |
+| `watchdog\watchdog_hidden.vbs` | 隐藏运行 `watchdog.ps1` | 用计划任务注册：`schtasks /Create /TN "BotWatchdog" /TR "wscript.exe <完整路径>\watchdog\watchdog_hidden.vbs" /SC MINUTE /MO 3 /F`（需管理员 PowerShell） | 同上 |
+| `watchdog\mode.ps1` | 在线/离线切换逻辑本体（两个模式 bat 只是壳） | `powershell -File mode.ps1 -Mode online\|offline` | 脚本化控制时 |
 | `snowluma\launcher.bat` | SnowLuma 自带启动器（先检查 node 版本再启动） | 一般不用手动跑，`snowluma_start.bat` 已够用 | 排查 node 版本问题时 |
 
 **端口速查**
@@ -337,7 +337,7 @@ class HelloPlugin(Star):
 **常见报错**
 
 - “astrbot 不是内部或外部命令” → 没装或不在 PATH：`pip install astrbot`。
-- SnowLuma 黑窗一闪而过 → 看 `scripts\watchdog\snowluma_boot.log`；多半是系统 node 版本过旧，用 `snowluma\launcher.bat` 自检版本。
+- SnowLuma 黑窗一闪而过 → 看 `watchdog\snowluma_boot.log`；多半是系统 node 版本过旧，用 `snowluma\launcher.bat` 自检版本。
 - 收不到消息 → 依次查：SnowLuma(5099) 里小号是否在线 → `onebot_你的QQ号.json` 是否指向 `ws://127.0.0.1:6199/ws` → `netstat -ano | findstr 6199` 是否在监听。
 - 端口被占用 → 6199/6185 在 `data\cmd_config.json` 改，5099 在 `snowluma\config\runtime.json` 改。
 - QQ 频繁掉线/要验证 → 在 SnowLuma WebUI 完成短信验证；手机 QQ 保持在线可降低风控。

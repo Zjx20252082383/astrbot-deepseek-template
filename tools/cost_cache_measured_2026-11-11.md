@@ -1,7 +1,7 @@
 # 成本实测：前缀缓存命中率
 
 - 实测时间：2026-11-11 16:24—16:27
-- 会话：`qq:FriendMessage:3848385085`
+- 会话：`qq:FriendMessage:<owner_qid>`
 - 进程：PID 1316（16:21:56 启动，重启后缓存冷启动）
 - 模型：`aliyun_bailian/deepseek-v4.1-flash-1017`（PAI Token Service 端点）
 - 数据来源：`dafeiyu_core.py:280` 的 `[cache-diag]` 只读日志，取自 provider 响应的 `usage`
@@ -122,7 +122,7 @@ sys_chars=2065   tool_n=75   ctx_msgs=120~121   ctx_chars≈34,264
 
 ```powershell
 # 读命中率
-python -c "import pathlib; [print(l) for l in pathlib.Path(r'E:\Users\zjx\Desktop\deepseek接QQ小号\data\logs\astrbot.log').read_text(encoding='utf-8',errors='replace').splitlines() if 'cache-diag' in l]"
+python -c "import pathlib; [print(l) for l in pathlib.Path('data/logs/astrbot.log').read_text(encoding='utf-8',errors='replace').splitlines() if 'cache-diag' in l]"
 ```
 
 日志格式：

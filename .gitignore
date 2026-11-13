@@ -34,10 +34,6 @@ Thumbs.db
 desktop.ini
 
 # watchdog 运行态产物（冷却标记、模式与启动日志）
-scripts/watchdog/cool_*.txt
-scripts/watchdog/mode.txt
-scripts/watchdog/*.log
-scripts/watchdog/*_boot.log
 watchdog/cool_*.txt
 watchdog/mode.txt
 watchdog/*.log
@@ -86,3 +82,10 @@ tools/*.xlsx
 /snowluma/launcher.bat
 /snowluma/release.json
 /snowluma/check-node-version.cjs
+
+# 真实实验数据（含真实对话、关系状态与 QQ 号，禁止入库）
+/实验数据/
+# 个人课表原始数据
+/课表接入/
+# 临时抓包产物
+sms_debug_dump.txt

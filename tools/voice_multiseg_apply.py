@@ -28,7 +28,7 @@ import shutil
 import sys
 from pathlib import Path
 
-PLUGIN = Path(r"E:\Users\zjx\Desktop\deepseek接QQ小号\data\plugins\astrbot_plugin_shihai_behavior")
+PLUGIN = Path(__file__).resolve().parents[1] / "data" / "plugins" / "astrbot_plugin_shihai_behavior"
 VOICE = PLUGIN / "modules" / "voice.py"
 MEM = PLUGIN / "modules" / "memory.py"
 

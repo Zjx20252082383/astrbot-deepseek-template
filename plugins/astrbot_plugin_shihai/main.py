@@ -69,8 +69,8 @@ class ShihaiPlugin(Star):
         # 否则群友的话会被写进 G_active，再被注入回主人的对话里。
         self.owner_only_perception = _as_bool(
             config.get("owner_only_perception"), True)
-        self.owner_qid = str(config.get("owner_qid", "3848385085"))
-        self.bot_qid = str(config.get("bot_qid", "3876988752"))
+        self.owner_qid = str(config.get("owner_qid", ""))
+        self.bot_qid = str(config.get("bot_qid", ""))
 
         self._tick_task: Optional[asyncio.Task] = None
 

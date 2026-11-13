@@ -86,7 +86,7 @@
   "owner_qid": {
     "description": "主人 QQ 号",
     "type": "string",
-    "default": "3848385085",
+    "default": "",
     "hint": "主动消息发给谁。与核心 shihai 配置保持一致。"
   },
   "platform_id": {
@@ -98,7 +98,7 @@
   "bot_qid": {
     "description": "机器人自己的 QQ 号",
     "type": "string",
-    "default": "3876988752",
+    "default": "",
     "hint": "自我回声防护。"
   },
   "intent_instruction_passive": {

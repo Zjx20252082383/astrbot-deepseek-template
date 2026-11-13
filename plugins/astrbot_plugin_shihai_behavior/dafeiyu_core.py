@@ -19,11 +19,21 @@ from astrbot.api import logger
 from astrbot.api.provider import ProviderRequest
 from astrbot.api.message_components import Image, Plain, Record
 
-# 主人 QQ 号（只有这个号能让大肥鱼动空间/签名）
-OWNER_QID = "3848385085"
-OWNER_QIDS = {OWNER_QID}
+# 身份常量：真实 QQ 号一律由插件配置 owner_qid / bot_qid 在初始化时注入，
+# 源码里不保留任何真实账号（公开仓库）。未注入时身份判定恒为否——
+# 宁可让权限与身份锚点失效，也不默认把陌生人当主人。
+OWNER_QID = ""
+OWNER_QIDS: set = set()
 # 机器人自己（小号）
-SELF_QID = "3876988752"
+SELF_QID = ""
+
+
+def configure_identity(owner_qid: str = "", self_qid: str = "") -> None:
+    """由插件初始化时按配置注入身份，避免真实 QQ 号进入源码。"""
+    global OWNER_QID, OWNER_QIDS, SELF_QID
+    OWNER_QID = str(owner_qid or "").strip()
+    SELF_QID = str(self_qid or "").strip()
+    OWNER_QIDS = {OWNER_QID} if OWNER_QID else set()
 
 # ---------- 防泄漏：把模型漏出来的系统指令行/思考行从回复里剥掉 ----------
 _META_ECHO_LINE = re.compile(
@@ -52,7 +62,7 @@ def mask_qids(text: str) -> str:
 def identity_anchor(sid: str) -> str:
     """本轮身份锚点：先判"这个号是谁"，再谈主人。
 
-    旧写法只有负向定义（"只有 3848385085 是主人"），模型拿不到
+    旧写法只有负向定义（"只有 <owner_qid> 是主人"），模型拿不到
     "当前这个号是不是主人"这个正向事实，于是任何会话都默认对面是主人，
     对着别人的号报出主人的 QQ 号（11-02 实例）。"""
     sid = str(sid or "").strip()
@@ -93,6 +103,9 @@ class DafeiyuCoreMixin:
     """平台适配核心（原 astrbot_plugin_dafeiyu 整体迁入，无 @register，由合并类加载）。"""
 
     def setup_dafeiyu_core(self, context: Context):
+        configure_identity(
+            owner_qid=str(self.config.get("owner_qid", "")),
+            self_qid=str(self.config.get("bot_qid", "")))
         self._market_mem = (0.0, None)  # (时间戳, 市场列表) 内存缓存
         self._last_diary_write_at = 0.0  # write_diary 幂等：上次写入时间戳
         self._install_mface_patch()

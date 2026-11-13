@@ -9,7 +9,7 @@ from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
-ROOT = Path(r"E:\Users\zjx\Desktop\deepseek接QQ小号")
+ROOT = Path(__file__).resolve().parents[1]  # 仓库根（= AstrBot 运行根），换机器无需改
 FONT = "微软雅黑"
 BLUE = "2F6FB0"
 DARK = "1F4E79"

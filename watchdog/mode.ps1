@@ -1,6 +1,8 @@
-﻿# Bot mode switch: offline = save tokens (diary only), online = full features
+# Bot mode switch: offline = save tokens (diary only), online = full features
 param([string]$Mode)
-$base = "E:\Users\zjx\Desktop\deepseek接QQ小号"
+# 路径按脚本位置推导：$base = 仓库根（= AstrBot 运行根），$wd = watchdog
+$wd = $PSScriptRoot
+$base = Split-Path -Parent $wd
 $pluginsDir = "$base\data\plugins"
 $stashDir = "$base\data\plugins_offline"
 $log = "$base\data\watchdog.log"

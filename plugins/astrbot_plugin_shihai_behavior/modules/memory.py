@@ -383,7 +383,7 @@ class MemoryMixin(SuiteBase):
             # 群聊要区分"谁在这个群里说了什么"：同一个 group 层会把 A 的私事
             # 也给 B 看到，所以固结时还要另存一份到发言人自己的 qq 层。
             self._mem_last_sender = sender
-            # 群名片：群里用"小南瓜"这种称呼记事实，而不是记成 group:905613149
+            # 群名片：群里用"小南瓜"这种称呼记事实，而不是记成 group:<群号>
             self._mem_last_sender_name = str(
                 getattr(event, "sender_name", "") or
                 (event.get_sender_name() if hasattr(event, "get_sender_name") else "") or "")
@@ -650,7 +650,7 @@ class MemoryMixin(SuiteBase):
                 # add_fact 内部处理合并：命中旧事实时 imp 只升不降
                 # 自动抽取出来的事实按"这一轮是谁在说话"打归属层。
                 # 之前硬编码 subject=OWNER_NAME，等于把所有人说的话都记成鑫鑫 —— 认错人的另一半根因。
-                # 群聊的 owner 是 group:<群号>，直接用会把主语写成"group:905613149"，
+                # 群聊的 owner 是 group:<群号>，直接用会把主语写成"group:<群号>"，
                 # 所以这里优先用发言人昵称（群名片），退回去才是 QQ 号。
                 _sid = str(getattr(self, "_mem_last_sender", "") or "")
                 _name = str(getattr(self, "_mem_last_sender_name", "") or "").strip()

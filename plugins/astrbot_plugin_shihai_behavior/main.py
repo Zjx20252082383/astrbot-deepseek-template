@@ -125,9 +125,9 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
         self.evolution.apply_strategy(self.policy)
         self.watcher_interval = max(10, int(self.config.get("watcher_interval", 20)))
         self.gen_max_len = max(10, int(self.config.get("gen_max_len", 40)))
-        self.owner_qid = str(self.config.get("owner_qid", "3848385085"))
+        self.owner_qid = str(self.config.get("owner_qid", ""))
         self.platform_id = str(self.config.get("platform_id", "qq"))
-        self.bot_qid = str(self.config.get("bot_qid", "3876988752"))
+        self.bot_qid = str(self.config.get("bot_qid", ""))
         self.sender = ProactiveSender(context, self.owner_qid, self.platform_id)
         self.task_engine = TaskEngine(
             data_dir,

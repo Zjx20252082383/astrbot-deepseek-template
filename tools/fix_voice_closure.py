@@ -33,7 +33,7 @@ import sys
 import time
 from pathlib import Path
 
-ROOT = Path(r"E:\Users\zjx\Desktop\deepseek接QQ小号")
+ROOT = Path(__file__).resolve().parents[1]  # 仓库根（= AstrBot 运行根），换机器无需改
 GRAPH = ROOT / "data" / "plugin_data" / "shihai" / "shihai_graph.json"
 CONF = ROOT / "data" / "config" / "astrbot_plugin_shihai_behavior_config.json"
 BAK_DIR = ROOT / "backups" / "shihai_graph_pre_voice_fix"

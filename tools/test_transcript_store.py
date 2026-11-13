@@ -9,8 +9,7 @@ import time
 from pathlib import Path
 
 # 让独立运行时能 import 插件 modules
-PLUGIN = Path(r"E:\Users\zjx\Desktop\deepseek接QQ小号"
-              r"\data\plugins\astrbot_plugin_shihai_behavior")
+PLUGIN = (Path(__file__).resolve().parents[1] / "data" / "plugins" / "astrbot_plugin_shihai_behavior")
 sys.path.insert(0, str(PLUGIN))
 
 from modules.transcript_store import TranscriptStore  # noqa: E402

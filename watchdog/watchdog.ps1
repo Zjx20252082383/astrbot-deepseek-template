@@ -1,7 +1,8 @@
-﻿# Bot watchdog: checks RVC / AstrBot / OneBot v11 every run, restarts if down.
-$base = "E:\Users\zjx\Desktop\deepseek接QQ小号"
-$log = "$base\data\watchdog.log"
-$wd = "$base\watchdog"
+# Bot watchdog: checks RVC / AstrBot / OneBot v11 every run, restarts if down.
+# 路径按脚本位置推导：$wd = watchdog，$base = 仓库根（= AstrBot 运行根）
+$wd = $PSScriptRoot
+$base = Split-Path -Parent $wd
+$log = Join-Path $base "data\watchdog.log"
 
 function Log($msg) {
     try {
@@ -58,6 +59,6 @@ $snowOk = Test-Port 5099
 if (-not $snowOk) {
     if (CooldownOk 'snowluma' 300) {
         Log "SnowLuma down -> restart snowluma_service_hidden.vbs (QQ must be running & logged in)"
-        Start-Process wscript.exe -ArgumentList ('"{0}\snowluma_service_hidden.vbs"' -f $base)
+        Start-Process wscript.exe -ArgumentList ('"{0}"' -f (Join-Path $base "scripts\snowluma_service_hidden.vbs"))
     }
 }
