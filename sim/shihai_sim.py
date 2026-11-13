@@ -33,6 +33,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import platform
 import time
 from pathlib import Path
@@ -868,6 +869,144 @@ def c16_extroversion(seed: int = SEED) -> dict:
             "criterion": "5 seed 均值随 ψ_E 单调不减、首次开口单调提前，且 0.9/0.1 比值 > 1.2"}
 
 
+def c17_relationship(seed: int = SEED) -> dict:
+    """关系强度 R：广度×深度、A 调制速度、30 天半衰期衰减、按人分开。
+
+    这里直接加载 plugins/astrbot_plugin_shihai/mind/relationship.py 来跑，
+    不在 sim 里复刻第二份实现——这份检查的全部价值就在于它测的是会部署的那份
+    代码，而不是一段平行的影子代码。relationship.py 只依赖标准库，可单文件加载。
+    """
+    import importlib.util
+    import sys
+
+    p = (Path(__file__).resolve().parent.parent / "plugins"
+         / "astrbot_plugin_shihai" / "mind" / "relationship.py")
+    spec = importlib.util.spec_from_file_location("shihai_relationship", p)
+    relm = importlib.util.module_from_spec(spec)
+    # dataclass 处理注解时要去 sys.modules 里查模块，必须先登记再 exec
+    sys.modules["shihai_relationship"] = relm
+    spec.loader.exec_module(relm)
+
+    topics = ["天气", "电影", "作业", "食堂", "考试", "球赛", "游戏", "音乐"]
+
+    # (1) 深度：同话题、同次数，只有自述比例不同
+    surf = relm.RelationEdge("surf")
+    deep = relm.RelationEdge("deep")
+    curve_s, curve_d = [], []
+    for i in range(30):
+        surf.contact(topics[: min(8, i + 1)], 0, 0.0, 1.0)
+        deep.contact(topics[: min(8, i + 1)], 1 if i % 3 == 0 else 0, 0.0, 1.0)
+        curve_s.append(round(surf.r, 4))
+        curve_d.append(round(deep.r, 4))
+    depth_ratio = deep.r / max(surf.r, 1e-9)
+
+    # (2) A 调制：达 R=0.5 所需接触次数
+    As = [0.1, 0.3, 0.5, 0.7, 0.9]
+    need = []
+    for a in As:
+        e = relm.RelationEdge(f"a{a}")
+        n = 0
+        while e.r < 0.50 and n < 200:
+            e.contact(topics, 1, 0.0, relm.k_of_agreeableness(a))
+            n += 1
+        need.append(n)
+
+    # (3) 饱和：单调不减且不越界
+    e = relm.RelationEdge("sat")
+    mono_sat, over = True, False
+    prev = 0.0
+    for _ in range(60):
+        e.contact(topics, 1, 0.0, 1.0)
+        if e.r < prev - 1e-12:
+            mono_sat = False
+        if e.r > 1.0 + 1e-12:
+            over = True
+        prev = e.r
+
+    # (4) 衰减：240h 应精确等于 ×0.5^(240/720)
+    rm = relm.RelationshipMap(os.path.join(str(OUT), "_tmp_rel.json"))
+    rm.observe("owner", "我最近很焦虑睡不着", ["失眠"], 1000.0, 0.70)
+    rm.decay_all(1000.0)
+    r_before = rm.strength("owner")
+    rm.decay_all(1000.0 + 240 * 3600)
+    r_after = rm.strength("owner")
+    expect = r_before * 0.5 ** (240.0 / relm.HALF_LIFE_H)
+    decay_err = abs(r_after - expect)
+
+    # (5) 按人分开：主人 20 条带自述 vs 陌生人 3 条纯寒暄
+    for i in range(20):
+        txt = "我最近胃疼睡不着我妈也不管" if i % 3 == 0 else "今天去图书馆跑步了"
+        rm.observe("owner", txt, [topics[i % 8]], 2000.0 + i * 3600, 0.70)
+    for i in range(3):
+        rm.observe("stranger", "你好今天天气不错", ["天气"], 2000.0 + i * 3600, 0.70)
+    r_own = rm.strength("owner")
+    r_str = rm.strength("stranger")
+    person_ratio = r_own / max(r_str, 1e-9)
+    try:
+        os.unlink(rm.path)
+    except OSError:
+        pass
+
+    # ---- 图：左 面熟 vs 交心；右 A 扫描下达阈接触次数 ----
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(8.0, 3.2))
+    x1 = np.arange(1, 31)
+    ax1.plot(x1, curve_s, color=C_MAIN, lw=1.4, label="只聊表面话题")
+    ax1.plot(x1, curve_d, color=C_ORANGE, lw=1.4, label="其中每 3 次含一条自述")
+    ax1.axhline(relm.SURFACE_FLOOR, color="0.6", ls="--", lw=0.9)
+    ax1.text(1.5, relm.SURFACE_FLOOR + 0.03, "表面关系上限 0.4", fontsize=7, color="0.4")
+    ax1.set_xlabel("有效接触次数")
+    ax1.set_ylabel("关系强度 R")
+    ax1.set_ylim(0, 1.0)
+    ax1.set_title("广度相同，深度决定 R 能不能过 0.4")
+    ax1.legend(fontsize=8, loc="lower right")
+
+    x2 = np.arange(len(As))
+    ax2.bar(x2, need, color=C_MAIN, alpha=0.85, width=0.55)
+    ax2.set_xticks(x2)
+    ax2.set_xticklabels([str(a) for a in As])
+    ax2.set_xlabel("ψ_A（宜人性）")
+    ax2.set_ylabel("达到 R=0.5 所需接触次数")
+    ax2.set_title("宜人性越高，关系建立越快")
+    for i, v in enumerate(need):
+        ax2.text(i, v + 0.15, f"{v}", ha="center", fontsize=8)
+    fig.suptitle("检查17 关系强度 R（社会渗透广度/深度 + A 调制）", y=1.04, fontsize=11)
+    _savefig(fig, "fig_17_relationship.png")
+
+    need_mono = all(b <= a for a, b in zip(need, need[1:]))
+    passed = bool(
+        depth_ratio > 1.5          # 深度确实把 R 拉起来
+        and need_mono              # A 越高越快
+        and need[0] > need[-1]     # 且确有差别，不是全相等
+        and mono_sat and not over  # 饱和单调不越界
+        and decay_err < 1e-6       # 衰减精确
+        and person_ratio > 3.0     # 分人有效
+    )
+    return {
+        "pass": passed,
+        "depth_ratio_deep_over_surface": round(float(depth_ratio), 3),
+        "surface_r": round(float(surf.r), 4),
+        "deep_r": round(float(deep.r), 4),
+        "surface_target": round(float(surf.r_target()), 4),
+        "deep_target": round(float(deep.r_target()), 4),
+        "psi_a_swept": As,
+        "contacts_to_R0.5": need,
+        "contacts_monotone": bool(need_mono),
+        "saturation_monotone": bool(mono_sat),
+        "saturation_over_1": bool(over),
+        "decay_240h_err": float(f"{decay_err:.2e}"),
+        "decay_expect": round(float(expect), 6),
+        "decay_actual": round(float(r_after), 6),
+        "half_life_h": relm.HALF_LIFE_H,
+        "owner_r": round(float(r_own), 4),
+        "stranger_r": round(float(r_str), 4),
+        "owner_over_stranger": round(float(person_ratio), 3),
+        "criterion": ("深度把 R 拉过表面上限（比值>1.5）、A 越高达阈越快且确有差别、"
+                      "饱和单调不越 1、240h 衰减误差<1e-6、主人/陌生人 R 相差>3 倍"),
+        "note": ("直接加载 mind/relationship.py 运行，测的是部署代码本身；"
+                 "A 的影响是速度而非终值——长期都收敛到同一 r_target"),
+    }
+
+
 def c09_threshold_saturation() -> dict:
     """阈值饱和：连续冷落到上限 3.5 后经高位放行仍开口，正反馈回落，无死锁。"""
     sim = MindSim(seed=SEED, guards=True, dt=0.02, T=120.0, msg_rate=0.0)
@@ -1277,11 +1416,12 @@ def run_all(seed: int) -> dict:
     results["C14_复习防作弊"] = c14_recall_gate(seed)
     results["C15_体检日归档"] = c15_sweep_tiers(seed)
     results["C16_E维主动开口"] = c16_extroversion(seed)
+    results["C17_关系强度R"] = c17_relationship(seed)
     comp = static_compile()
 
     unit = ["C01_情绪场弛豫", "C03_Hebbian", "C04_念头累积", "C07_差异化衰减",
             "C08_N维恐惧消退", "C10_极端边界", "C13_Hebbian两道门",
-            "C14_复习防作弊", "C16_E维主动开口"]
+            "C14_复习防作弊", "C16_E维主动开口", "C17_关系强度R"]
     scen = ["C02_情绪-记忆耦合", "C05_200h长时稳定", "C06_参数扰动",
             "C09_阈值饱和", "C11_自我调节", "C15_体检日归档"]
     unit_pass = sum(1 for k in unit if results[k]["pass"])

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import time
 from typing import Any, Dict, List, Optional, Tuple
@@ -21,7 +22,8 @@ from .classify import estimate_emotion
 from .ego import EgoRegulator, RHO
 from .emotion import EmotionField, LAMBDA_TYPE
 from .goals import goal_drift
-from .graph import DEICTIC_KEYWORDS, MemoryGraph
+from .graph import DEICTIC_KEYWORDS, MemoryGraph, _extract_keywords
+from .relationship import RelationshipMap
 from .state import DEFAULT_PSI, DEFAULT_THETA, EMOTION_DIMS, MindState, clamp
 from .urge import UrgeEngine
 
@@ -109,6 +111,10 @@ class MindEngine:
         self.cfg = cfg
         self.state = MindState(state_path)
         self.graph = MemoryGraph(graph_path, self._graph_cfg())
+        # 关系子系统（§10.6）：与图谱同目录落盘，按人分开维护关系强度
+        rel_path = os.path.join(os.path.dirname(graph_path) or ".", "relations.json")
+        self.relations = RelationshipMap(rel_path)
+        self._last_sender: str = ""
         self.emotion = EmotionField(
             tau={d: float(cfg.get(f"tau_{d}", v))
                  for d, v in (("happy", 6.0), ("sad", 12.0), ("angry", 2.0),
@@ -223,6 +229,12 @@ class MindEngine:
             text, s_ext, now,
             sender="owner" if is_owner else (f"other:{sender}" if sender else "other"))
         self.graph.hebbian(touched, now)
+        # 关系边推进（§10.6）：按发送者分开记，广度=话题、深度=自述
+        self._last_sender = "owner" if is_owner else (sender or "")
+        self.relations.observe(
+            self._last_sender, text, _extract_keywords(text, 4), now,
+            float(self.state.psi.get("A", 0.7)))
+        self.relations.save()
         recalled = self.graph.activate_and_spread(text, now)
         self._last_recall = recalled
         s_int = self.graph.recall_emotion_injection(recalled)
@@ -270,8 +282,11 @@ class MindEngine:
         interaction_recent = (now - self.state.last_user_msg_at) < 2 * 3600
         negative_recent = (now - self._last_negative_at) < 6 * 3600
         self_expr_age = (now - self._last_self_expression_at) / 3600.0
+        # 关系衰减（§10.6：30 天半衰期，与 ψ 同为月级慢变量）
+        self.relations.decay_all(now)
         goal_drift(self.state, dt_h, hour, interaction_recent,
-                   negative_recent, self_expr_age)
+                   negative_recent, self_expr_age,
+                   relation_strength=self.relations.strength(self._last_sender))
         # 静默惩罚（§11 第3行）
         self.adapt.on_silence(self.state, now)
         # 冲突窗口衰减（§5.10.2(b)：conflict_steps 每决策步 -1）
@@ -770,6 +785,7 @@ class MindEngine:
             self.adapt.threshold_effective(self.state), 3)
         snap["g_active"] = self.g_active()
         snap["recent_talks"] = self.graph.recent_events()  # 最近聊过（带时间标签）
+        snap["relations"] = self.relations.snapshot()      # §10.6 按人分开的关系强度
         snap["bot_quotes"] = self.graph.bot_quotes()  # 自我语录（§18.3 说话示例）
         snap["graph"] = {
             "nodes": len(self.graph.nodes),

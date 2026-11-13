@@ -1,6 +1,6 @@
 {
  "schema": "shihai-sim/1.0",
- "generated_at": "2026-11-13 11:09:22",
+ "generated_at": "2026-11-13 11:58:32",
  "seed": 20261110,
  "python": "3.12.11",
  "integral": {
@@ -220,6 +220,40 @@
    "first_fire_monotone": true,
    "fires_E0.9_over_E0.1": 1.618,
    "criterion": "5 seed 均值随 ψ_E 单调不减、首次开口单调提前，且 0.9/0.1 比值 > 1.2"
+  },
+  "C17_关系强度R": {
+   "pass": true,
+   "depth_ratio_deep_over_surface": 2.29,
+   "surface_r": 0.2528,
+   "deep_r": 0.5791,
+   "surface_target": 0.2528,
+   "deep_target": 0.5808,
+   "psi_a_swept": [
+    0.1,
+    0.3,
+    0.5,
+    0.7,
+    0.9
+   ],
+   "contacts_to_R0.5": [
+    10,
+    9,
+    8,
+    8,
+    7
+   ],
+   "contacts_monotone": true,
+   "saturation_monotone": true,
+   "saturation_over_1": false,
+   "decay_240h_err": 0.0,
+   "decay_expect": 0.020166,
+   "decay_actual": 0.020166,
+   "half_life_h": 720.0,
+   "owner_r": 0.5857,
+   "stranger_r": 0.0381,
+   "owner_over_stranger": 15.386,
+   "criterion": "深度把 R 拉过表面上限（比值>1.5）、A 越高达阈越快且确有差别、饱和单调不越 1、240h 衰减误差<1e-6、主人/陌生人 R 相差>3 倍",
+   "note": "直接加载 mind/relationship.py 运行，测的是部署代码本身；A 的影响是速度而非终值——长期都收敛到同一 r_target"
   }
  },
  "fault_rate": {
@@ -257,9 +291,9 @@
   }
  },
  "summary": {
-  "unit_checks": "9/9",
+  "unit_checks": "10/10",
   "scenario_checks": "6/6",
-  "all_checks": "15/15",
+  "all_checks": "16/16",
   "static_compile": "13/13",
   "total_fault_rate": 0.065,
   "baseline_fault_rate": 1.54,
@@ -339,7 +373,8 @@
   "fig_13_hebbian_gates.png",
   "fig_14_recall_gate.png",
   "fig_15_sweep_tiers.png",
-  "fig_16_extroversion.png"
+  "fig_16_extroversion.png",
+  "fig_17_relationship.png"
  ],
  "notes": [
   "所有结论只在本文参数与步长内成立（§15.1 解释边界）。",

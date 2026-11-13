@@ -13,16 +13,26 @@ from __future__ import annotations
 from .state import MindState, clamp
 
 
+REL_CONVERGE_RATE = 0.08  # g_relation 向实测关系强度收敛的速率（1/h）
+
+
 def goal_drift(
     state: MindState, dt_hours: float, hour: int,
     interaction_recent: bool, negative_recent: bool,
     last_self_expression_age_h: float = 24.0,
+    relation_strength: float | None = None,
 ) -> None:
     if dt_hours <= 0:
         return
     g = state.goals
-    # g_relation：刚聊过↑（关系正在发生），久无互动缓降
-    if interaction_recent:
+    # g_relation：给了实测关系强度（§10.6 RelationshipMap）就向它收敛，
+    # 否则退回原布尔推拉（只有"刚聊过/久无互动"，不区分和谁、多深）
+    if relation_strength is not None:
+        g["g_relation"] = clamp(
+            g["g_relation"]
+            + REL_CONVERGE_RATE * (relation_strength - g["g_relation"]) * dt_hours,
+            0.0, 1.0)
+    elif interaction_recent:
         g["g_relation"] = clamp(g["g_relation"] + 0.04 * dt_hours, 0.0, 1.0)
     else:
         g["g_relation"] = clamp(g["g_relation"] - 0.015 * dt_hours, 0.05, 1.0)

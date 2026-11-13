@@ -39,7 +39,7 @@
 
 | 插件 | 角色 | 内容 |
 |---|---|---|
-| `astrbot_plugin_shihai` | 【识海·核心】Core-Mind | 情绪场 ODE（τ/κ/η/W）、神经图谱（扩散激活+双衰减+Hebbian+梦境固化）、念头引擎（FIRE_THRESHOLD=2.10、由头锚点）、EgoRegulator 自我调节（§5.10 分段放行表+防御四机制）、行动记忆入账（bot 侧时序锚）、用户反馈自适应 θ（含饱和上限 3.5）、WebUI 全参数调参 |
+| `astrbot_plugin_shihai` | 【识海·核心】Core-Mind | 情绪场 ODE（τ/κ/η/W）、神经图谱（扩散激活+双衰减+Hebbian+梦境固化）、念头引擎（FIRE_THRESHOLD=2.10、由头锚点）、EgoRegulator 自我调节（§5.10 分段放行表+防御四机制）、行动记忆入账（bot 侧时序锚）、用户反馈自适应 θ（含饱和上限 3.5）、关系强度 R（社会渗透广度/深度、按人分开、A 调制建立速度、30 天半衰期）、WebUI 全参数调参 |
 | `astrbot_plugin_shihai_psyche` | 【识海·心理】 | 大五人格 ψ、依恋 att、认知失调、条件反射、防御机制、自我效能（论文 §8 六模型），psyche_tune / psyche_report / psyche_defense 工具 |
 | `astrbot_plugin_shihai_behavior` | 【识海·行为与适配】小鱼总成 | 涌现行为空间（behaviors.json 注册表，触发条件可配）+ 策略 π=Q+β·g·φ + **意图包出口** I_t={G_active, E_t, M*_t, P_t, intent-type} + 决定档案注入（"这是你自己的决定"）+ 时序锚定 R_t 与指代时间词换算 + 主动开口执行 ⊕ 工具箱套件（告状/传话/余额/语音听说唱/QQ动作/表情包图库/短记忆/控制台）⊕ RVC 翻唱 ⊕ 画图 ⊕ 戳一戳 |
 | `astrbot_plugin_shihai_guard` | 【识海·守护】一致性守护层 | 四条不变量 I1 时序单调 / I2 通道隔离（quote 只走 few-shot）/ I3 表达归界（σ(ψ) 渲染表达参数）/ I4 解释权唯一 + 生成后强度降级与催促线索检出，全程只读 z(t)，审计写 guard_trace.jsonl |
