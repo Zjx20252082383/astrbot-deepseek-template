@@ -31,6 +31,14 @@ _MOTIVE_CN = {
     "g_avoid": "回避冲突、避免被讨厌",
 }
 
+# 说话形态 → 给 LLM 的硬约束。这是"本地决定说什么"的落点：
+# 形态由行为决定，LLM 只负责把这一句填得像个活人。
+_SPEECH_KIND_CN = {
+    "chat": "一句轻的搭话，不超过 15 字，不携带任何待办、约定或要求。",
+    "remind": "先点出答应过的事，再说时间。对方听完必须知道「是什么事、什么时候」。",
+    "share": "分享你手上这个东西（画/歌/片段）。不要借机提任何要求。",
+}
+
 
 def assemble(state: Dict[str, Any], intent_type: str = "被动应答",
              action: Optional[Dict[str, Any]] = None,
@@ -61,6 +69,13 @@ def assemble(state: Dict[str, Any], intent_type: str = "被动应答",
         g_top = max(goals, key=lambda k: float(goals.get(k, 0.0))) if goals else "g_relation"
         motive = _MOTIVE_CN.get(g_top, g_top)
         motive_src = g_top
+    # 说话形态：主动行为由行为表决定，被动应答统一按 chat 之外处理（不在此约束）
+    if action:
+        kind = str(action.get("speech_kind") or "").strip()
+        if kind not in _SPEECH_KIND_CN:
+            kind = "chat"
+    else:
+        kind = ""
     theta = state.get("theta", {}) or {}
     return {
         "G_active": g_active[:cap],
@@ -78,6 +93,7 @@ def assemble(state: Dict[str, Any], intent_type: str = "被动应答",
                                + float(theta.get("streak_gate", 0.0)), 2),
         },
         "intent_type": intent_type,
+        "speech_kind": kind,
     }
 
 
@@ -101,10 +117,16 @@ def format(pkg: Dict[str, Any]) -> str:
     e_parts += [f"{_E_CN.get(d, d)}{int(float(v) * 100)}%"
                 for d, v in e.get("secondary", [])]
     m = pkg["M_t"]
-    return (
+    body = (
         "【意图包】\n"
         f"最近聊过：{talk_rows}\n"
         f"记得的事：{g_rows}\n"
         f"此刻情绪：{'、'.join(e_parts)}\n"
         f"动机：{m['motive']}｜类型：{pkg['intent_type']}"
     )
+    kind = str(pkg.get("speech_kind") or "")
+    rule = _SPEECH_KIND_CN.get(kind)
+    if rule:
+        # 放在最后一行：这是硬约束，不是参考。位置越靠后模型越当回事。
+        body += f"\n说话形态：{rule}"
+    return body

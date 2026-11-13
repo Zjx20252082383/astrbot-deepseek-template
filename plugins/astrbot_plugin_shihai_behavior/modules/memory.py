@@ -39,6 +39,11 @@ from astrbot import logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.message_components import Plain
 
+try:  # 情绪相对基线：e 绝对值常年 0.04，判断"此刻是否不一样"必须看历史
+    from .emotion_baseline import EmotionBaseline
+except ImportError:  # pragma: no cover - 兼容被当脚本直接跑
+    EmotionBaseline = None  # type: ignore
+
 from .base import SuiteBase, to_int
 from .query_classifier import needs_timeline
 from .memory_v2 import (
@@ -59,6 +64,29 @@ FACT_LINE_MAX = 60
 
 # 称呼口径：对方叫「鑫鑫」，她自己叫「小满」。记忆与转写里不使用「主人」「宠物」这类称呼。
 OWNER_NAME = "鑫鑫"
+
+# ---- 记忆披露梯度（Disclosure Ladder）----
+# 观众分三档，同一批记忆按档位改写，而不是"给 / 不给"的二值开关：
+#   D3 本人：原样。他要的是完整记忆，任何改写都是丢信息。
+#   D2 熟人：去号码、去日期、专名换成「他」，保留事件轮廓。认得出来"有这么件事"，
+#           但认不出"是谁的事"，也不足以反查到人。
+#   D1 陌生/群聊：在 D2 基础上只留关系骨架，纯事实型条目（成绩、职务、金额、
+#           目标院校）整条丢弃。她仍能说"有个人对我好"，但说不出是谁、发生过什么。
+# 为什么不整条屏蔽：实测把 owner 层压到 0 条，她照样说"有个养我的人"（那句话来自
+# 人格设定，不在记忆层），反而把"共同经历"一起丢了。分层改写才是正确的粒度。
+OWNER_ALIASES = ("冰裂纹的熵", "郑俊鑫", "俊鑫", OWNER_NAME)
+
+# D1 保留词：关系与情绪，是"她有自己的生活"这一点的骨架
+_RELATION_HINTS = (
+    "爱", "在乎", "关心", "喜欢", "陪我", "陪她", "约定", "名字", "生气",
+    "担心", "想", "重要", "对我好", "抱", "哭", "笑", "哄", "等",
+)
+# D1 丢弃词：纯事实，一旦泄漏等于身份或隐私暴露
+_PURE_FACT_HINTS = (
+    "绩点", "排名", "组长", "奖学金", "竞赛", "一等奖", "二等奖", "三等奖",
+    "入党", "目标", "院校", "元", "余额", "密码", "身份证", "手机号",
+    "课表", "宿舍", "专业", "学分", "考试", "简历", "实习", "offer",
+)
 
 # 归属可见性（v5）：非主人会话要不要读 owner 层（鑫鑫的私有记忆）。
 #   True  = 老行为：一个库全共享，靠"注入归属声明 + 输出号码护栏"兜底，
@@ -344,12 +372,21 @@ class MemoryMixin(SuiteBase):
             if not text or text.startswith("/"):
                 return
             now = time.time()
+            _nm = str(getattr(event, "sender_name", "") or
+                      (event.get_sender_name() if hasattr(event, "get_sender_name") else "") or "")
             self._mem_buffer.append(
-                {"ts": now, "sender": sender, "text": text[:120],
+                {"ts": now, "sender": sender, "name": _nm, "text": text[:120],
                  "origin": str(getattr(event, "unified_msg_origin", "") or "")})
             # 本轮归属层：冻结事件时写进 EventItem，注入时按会话取并集
             self._mem_last_owner = self._mem_owner_tag(
                 sender, str(getattr(event, "unified_msg_origin", "") or ""))
+            # 群聊要区分"谁在这个群里说了什么"：同一个 group 层会把 A 的私事
+            # 也给 B 看到，所以固结时还要另存一份到发言人自己的 qq 层。
+            self._mem_last_sender = sender
+            # 群名片：群里用"小南瓜"这种称呼记事实，而不是记成 group:905613149
+            self._mem_last_sender_name = str(
+                getattr(event, "sender_name", "") or
+                (event.get_sender_name() if hasattr(event, "get_sender_name") else "") or "")
             # z_r(o) / z_s(s) 推进（每条入站消息一次；故障只记 debug，不打断对话）
             self._mem_touch(
                 self._mem_last_owner,
@@ -407,7 +444,8 @@ class MemoryMixin(SuiteBase):
             elif sender == str(self.bot_qid):
                 who = SELF_NAME
             else:
-                who = f"QQ{sender}"
+                # 群里人多，光凭 QQ 号固结时分不清谁说的；有群名片就用群名片。
+                who = str(item.get("name") or "").strip()[:8] or f"QQ{sender}"
             line = f"{who}：{item['text']}"
             lines.append(line)
             total += len(line)
@@ -612,12 +650,37 @@ class MemoryMixin(SuiteBase):
                 # add_fact 内部处理合并：命中旧事实时 imp 只升不降
                 # 自动抽取出来的事实按"这一轮是谁在说话"打归属层。
                 # 之前硬编码 subject=OWNER_NAME，等于把所有人说的话都记成鑫鑫 —— 认错人的另一半根因。
-                subj = OWNER_NAME if owner == "owner" else str(owner).replace("qq:", "QQ")
+                # 群聊的 owner 是 group:<群号>，直接用会把主语写成"group:905613149"，
+                # 所以这里优先用发言人昵称（群名片），退回去才是 QQ 号。
+                _sid = str(getattr(self, "_mem_last_sender", "") or "")
+                _name = str(getattr(self, "_mem_last_sender_name", "") or "").strip()
+                if owner == "owner":
+                    subj = OWNER_NAME
+                elif _name and _name != "未知":
+                    subj = _name[:12]
+                elif _sid:
+                    subj = f"QQ{_sid}"
+                else:
+                    subj = str(owner).replace("qq:", "QQ")
                 fid, _new = self._memv2.add_fact(
                     subject=subj, predicate=pred[:10], obj=obj[:24], weight=0.55,
                     imp=f_imp if f_imp is not None else imp_val, save=False,
                     owner=owner)
                 added += 1
+                # 群聊双写：群里说的话既属于这个群（公共），也属于说这句话的人（私有）。
+                # 只写 group 层 → 同群任何人都能召回 A 的私事；只写个人层 → 她记不住群里的事。
+                # 两处都写，注入时再按发言人取并集，才能"记得住群、又不串人"。
+                sid = str(getattr(self, "_mem_last_sender", "") or "")
+                if (str(owner or "").startswith("group:") and sid
+                        and sid != str(getattr(self, "owner_qid", ""))):
+                    try:
+                        self._memv2.add_fact(
+                            subject=subj, predicate=pred[:10], obj=obj[:24],
+                            weight=0.55,
+                            imp=f_imp if f_imp is not None else imp_val,
+                            save=False, owner="qq:" + sid)
+                    except Exception:  # noqa: BLE001 - 双写失败不影响主写入
+                        pass
             # 批量落盘：一次固结 events/facts 各只写一次盘（原来最多 8 次全量重写）
             if added:
                 self._memv2.facts.save()
@@ -655,7 +718,50 @@ class MemoryMixin(SuiteBase):
 
     # ==================== 读链路：注入 ====================
 
-    @filter.on_llm_request()
+    def _emotion_baseline(self):
+        """情绪基线单例。落 plugin_data 下，重启后历史还在。"""
+        if EmotionBaseline is None:
+            return None
+        cached = getattr(self, "_eb_cache", None)
+        if cached is not None:
+            return cached
+        try:
+            # data/plugins/<pkg>/modules/memory.py → parents[3] 即 data/
+            # 目录名必须跟着 STATE_DIR_NAME="shihai"（与核心共享的数据目录），
+            # 不是插件包名 —— 写错会建出一个谁也不读的孤儿目录。
+            root = Path(__file__).resolve().parents[3]
+            path = root / "plugin_data" / "shihai" / "emotion_hist.json"
+            inst = EmotionBaseline(str(path))
+        except Exception:  # noqa: BLE001 - 拿不到就不做相对基线，不影响注入
+            return None
+        self._eb_cache = inst
+        return inst
+
+    @staticmethod
+    def _mem_time_anchor() -> str:
+        """当前时刻的本地锚点。零 Token，纯系统时间，不经过 LLM。
+
+        只给客观事实（几点、星期几、时段），**不带任何指令**。
+        原因：说话轻重该由状态层（e / 语片）决定，锚点一旦写"说话要轻"，
+        就变成两条链路同时下指令，出问题时分不清是谁的责任。
+        """
+        lt = time.localtime()
+        wd = "一二三四五六日"[lt.tm_wday]
+        h = lt.tm_hour
+        if 5 <= h < 9:
+            seg = "早上"
+        elif 9 <= h < 12:
+            seg = "上午"
+        elif 12 <= h < 14:
+            seg = "中午"
+        elif 14 <= h < 18:
+            seg = "下午"
+        elif 18 <= h < 23:
+            seg = "晚上"
+        else:
+            seg = "凌晨"
+        return f"（现在是 {lt.tm_mon} 月 {lt.tm_mday} 日 周{wd} {seg} {lt.tm_hour}:{lt.tm_min:02d}）"
+
     async def memory_inject(self, event: AstrMessageEvent, req: Any):
         """每次 LLM 请求前：recall(当前消息) → 事实+事件拼进 system_prompt。"""
         if not bool(self._memory_cfg("enabled", True)):
@@ -673,6 +779,17 @@ class MemoryMixin(SuiteBase):
         use_dynamics = group in ("d_full", "e_partitioned")
         try:
             query = self._memory_text(event)
+            # 每轮采一次情绪样：记进滚动历史，"此刻是否不一样"靠它判。
+            # 不记的话基线永远空，语音和语片就只能退回绝对值判断。
+            try:
+                _st = self._read_state() or {}
+                _ev = float((_st or {}).get("e_dom_value") or 0.0)
+                if _ev > 0:
+                    _eb = self._emotion_baseline()
+                    if _eb is not None:
+                        _eb.observe(_ev)
+            except Exception:  # noqa: BLE001 - 采样失败不能影响注入
+                pass
             # §12.5 注入预算：条数与单条字数可在插件配置 memory.* 里调（省 Token 旋钮）
             try:
                 fact_top_n = max(1, int(self._memory_cfg("fact_top_n", FACT_TOP_N)))
@@ -692,6 +809,14 @@ class MemoryMixin(SuiteBase):
             try:
                 mode = mode_for(sender_id, self.owner_qid, self._known_ids)
                 mode_hint = mode_hint_of(mode)
+                # 群聊收口：群消息对全员可见，发问的即使是熟人，房间里也有别人在读。
+                # 不改 mode 本身（熟人日常体验要保住，工具权限也不用降），
+                # 只在规则末尾加一句，让她知道"这不是私聊"。
+                if tag.startswith("group:") and mode != MODE_COMPANION:
+                    mode_hint += (
+                        "（注意：这是群聊，你说的每句话整个群的人都看得见，"
+                        "在场的不只有眼前这个人；有不相干的人在读，"
+                        "就按最严的那一档来，宁可含糊也别讲具体的人和事）")
                 # 承诺只在主人通道露出：提醒永不发给承诺对象（既骚扰也会带出主人私事）
                 if mode == MODE_COMPANION:
                     commit_block = self._commit.brief(tag, time.time(), 3)
@@ -710,19 +835,23 @@ class MemoryMixin(SuiteBase):
                 logger.warning(f"[identity] 权限判定失败: {type(exc).__name__} {exc}")
             # 式 (6-21)：owner 会话恒等 1，其他会话按关系强度连续门控。
             # 布尔 OWNER_LAYER_VISIBLE_TO_OTHERS 保留为**上限开关**：关掉即 w=0。
+            # 群聊另加发言人自己的 qq 层：群里的话固结时会双写一份到 qq:<号>，
+            # 这里取回来，她才能"记得住这个人在这群里跟我说过什么"。
+            own_layer = (["qq:" + sender_id]
+                         if tag.startswith("group:") and sender_id else [])
             if is_owner:
                 w_vis, r_obj = 1.0, None
-                owners = ["owner", tag]
+                owners = ["owner", tag] + own_layer
             elif not OWNER_LAYER_VISIBLE_TO_OTHERS:
                 w_vis, r_obj = 0.0, None
-                owners = [tag]
+                owners = [tag] + own_layer
             elif partitioned:
                 r_obj = self._mem_relation(tag)
                 w_vis = visible_weight(r_obj, False)
-                owners = ["owner", tag]
+                owners = ["owner", tag] + own_layer
             else:
                 w_vis, r_obj = 1.0, None
-                owners = ["owner", tag]
+                owners = ["owner", tag] + own_layer
             facts, events = self._memv2.recall(
                 query, fact_top_n, event_top_n, use_dynamics=use_dynamics,
                 owners=owners)
@@ -832,6 +961,11 @@ class MemoryMixin(SuiteBase):
             self._mem_trace_entry(group, tag, w_vis, r_obj, trimmed,
                                   trimmed_owners, tl_lines)
             parts: list[str] = []
+            # 时间锚点：她得知道现在是几点、星期几。必须本地取（零 Token），
+            # 不能让她猜 —— 否则凌晨三点会发"早上好"、周一提醒"周末好好休息"。
+            _anchor = self._mem_time_anchor()
+            if _anchor:
+                parts.append(_anchor)
             if trimmed:
                 parts.append("【你记得的旧事】（跟眼下这句话有关的，按相关度排）\n"
                              + "\n".join(trimmed))
@@ -1070,20 +1204,62 @@ class MemoryMixin(SuiteBase):
 
     @staticmethod
     def _mem_redact(text: str) -> str:
-        """低 w 会话的条目脱敏：去号码、去具体日期、把主人名字换成"对方"。
+        """兼容旧调用：等价于按 D1（陌生人档）改写。"""
+        return MemoryPlugin._mem_disclose(text, 1)
 
-        不是加密，只是不让"几乎陌生"的会话拿到可用于反查的身份碎片；
-        保留内容主干，避免脱敏后整条失去可用性。
+    def _mem_disclosure_level(self, viewer: str) -> int:
+        """观众视角 → 披露档位。3 本人 / 2 熟人 / 1 陌生或群聊。"""
+        vw = str(viewer or "owner")
+        if vw in ("", "owner"):
+            return 3
+        if vw.startswith("group:"):
+            return 1          # 群消息全员可见，按最严档处理，不区分谁在问
+        sid = vw[3:] if vw.startswith("qq:") else vw
+        try:
+            known = {str(x) for x in (getattr(self, "_known_ids", None) or ())}
+            if sid and sid in known:
+                return 2
+        except Exception:  # noqa: BLE001 - 名单读不到就按最严走
+            pass
+        return 1
+
+    @staticmethod
+    def _mem_disclose(text: str, level: int) -> str:
+        """按观众档位改写一条记忆。level>=3 原样返回。
+
+        D2/D1 共同：去号码、去日期、所有主人专名换成「他」。
+        D1 额外：纯事实型条目整条丢弃（返回空串，调用方跳过）。
+        用「他」而不是「对方」：中文里「对方」在对话中指当前说话的人，
+        换上去等于把主人的事贴到陌生人身上——实测她会因此更敢说「我主人」。
         """
         t = str(text or "")
         if not t:
             return t
-        t = re.sub(r"\d{6,12}", "[号码]", t)
-        t = re.sub(r"\d{4}[-/.年]\d{1,2}[-/.月]\d{1,2}日?", "[日期]", t)
-        t = re.sub(r"\d{1,2}月\d{1,2}[日号]", "[日期]", t)
-        if OWNER_NAME:
-            t = t.replace(OWNER_NAME, "对方")
+        if level >= 3:
+            return t
+        # 号码：QQ、手机、单号都可能被拼回来反查
+        t = re.sub(r"\d{6,12}", "一串数字", t)
+        # 日期：具体到天会暴露作息与时间线
+        t = re.sub(r"\d{4}[-/.年]\d{1,2}[-/.月]\d{1,2}日?", "某天", t)
+        t = re.sub(r"\d{1,2}月\d{1,2}[日号]", "某天", t)
+        t = re.sub(r"\d{4}年", "某年", t)
+        # 专名：按长度从长到短替换，避免「冰裂纹的熵」被「鑫鑫」规则拆坏
+        for a in OWNER_ALIASES:
+            if a:
+                t = t.replace(a, "他")
+        # 替换后整理人称，避免「他她说」「他他」
+        t = t.replace("他她", "她").replace("他他", "他")
+        if level <= 1:
+            # D1 只保留关系骨架：没有情感/关系词的条目一律不注入。
+            # 反过来做（"含事实词才丢"）实测只筛掉 45 条 / 463 条，等于没筛——
+            # 存量事实里大量是"某天他做了某事"，既不含成绩也不含金额，但仍然是
+            # 只有主人才知道的经历。陌生人档的正确口径是"白名单"而非"黑名单"。
+            if not any(k in t for k in _RELATION_HINTS):
+                return ""
+            # 金额细节
+            t = re.sub(r"\d+(?:\.\d+)?\s*元", "一笔钱", t)
         return t
+
 
     def _mem_format_recall(self, facts, events,
                            event_max: int = EVENT_CONTENT_MAX,
@@ -1094,11 +1270,11 @@ class MemoryMixin(SuiteBase):
         豁免 = 核心事实 / 高重要度（imp≥0.8）/ 近 12h 事件：
         相关性闸零交集时仍保留（"记最近的事"优先于字面重合）。
         行数不在此截断——memory_inject 按 240 字预算统一裁剪。"""
-        try:
-            redact = bool(viewer) and float(w) < 0.4
-        except (TypeError, ValueError):
-            redact = False
+        lvl = self._mem_disclosure_level(viewer)
         lines: list[tuple[str, bool, str]] = []
+        # 群聊定会双写（group 层 + 本人 qq 层），取并集时同一条会命中两次，
+        # 这里按渲染后的整行去重，否则她会把同一件事说两遍。
+        seen: set[str] = set()
         for it in facts:
             it_owner = str(getattr(it, "owner", "owner") or "owner")
             scope = self._scope_label(it_owner, viewer)
@@ -1113,13 +1289,21 @@ class MemoryMixin(SuiteBase):
                 text = f"{subj}{it.predicate}：{obj}"
             else:
                 text = f"{subj}：{obj}"
-            if redact:
-                text = self._mem_redact(text)
+
+            if lvl < 3:
+                text = self._mem_disclose(text, lvl)
+                if not text:
+                    continue                  # D1 下纯事实型条目整条丢弃
+
             # 单条事实显示上限：存量 v1 导入的事实体常超 80 字，一条就吃掉
             # 近一半预算（240 字），把同批相关事实全挤出去。
             if len(text) > FACT_LINE_MAX:
                 text = text[: FACT_LINE_MAX - 1] + "…"
-            lines.append((tag + text, bool(it.is_core or it.imp >= 0.8),
+            line_key = tag + text
+            if line_key in seen:
+                continue
+            seen.add(line_key)
+            lines.append((line_key, bool(it.is_core or it.imp >= 0.8),
                           str(getattr(it, "owner", "owner"))))
         for ev in events:
             if not ev.content:
@@ -1133,14 +1317,20 @@ class MemoryMixin(SuiteBase):
             if is_raw_transcript(ev.content):
                 continue
             body = self._mem_clip(ev.content, event_max)
-            if redact:
-                body = self._mem_redact(body)
             ev_owner = str(getattr(ev, "owner", "owner") or "owner")
+            if lvl < 3:
+                body = self._mem_disclose(body, lvl)
+                if not body:
+                    continue                  # D1 下纯事实型条目整条丢弃
             ev_scope = self._scope_label(ev_owner, viewer)
             if ev_scope is None:
                 continue
+            ev_key = ev_scope + f"- 约{self._mem_rel_time(ev.ts)}：{body}"
+            if ev_key in seen:
+                continue
+            seen.add(ev_key)
             lines.append((
-                ev_scope + f"- 约{self._mem_rel_time(ev.ts)}：{body}",
+                ev_key,
                 bool(time.time() - float(ev.ts or 0) <= 12 * 3600 or ev.imp >= 0.8),
                 ev_owner,
             ))

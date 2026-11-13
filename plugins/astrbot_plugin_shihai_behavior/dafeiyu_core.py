@@ -94,6 +94,7 @@ class DafeiyuCoreMixin:
 
     def setup_dafeiyu_core(self, context: Context):
         self._market_mem = (0.0, None)  # (时间戳, 市场列表) 内存缓存
+        self._last_diary_write_at = 0.0  # write_diary 幂等：上次写入时间戳
         self._install_mface_patch()
 
     # ---------- mface 动态表情包补丁 ----------
@@ -761,8 +762,46 @@ class DafeiyuCoreMixin:
 
         asyncio.create_task(_job())
 
-    _AUTO_VOICE_PROB = 0.3      # 自动转语音概率
+    _AUTO_VOICE_PROB = 0.3      # 回退值；实际以配置 voice.speak.speak_prob_percent 为准
     _AUTO_VOICE_MAXLEN = 100    # 只自动转这么短的回复
+
+    def _auto_voice_prob(self) -> float:
+        """读配置里的自动语音概率（0-100 → 0-1）。
+
+        以前这里写死 _AUTO_VOICE_PROB=0.3，配置里的 speak_prob_percent 改 0 也不生效，
+        语音照发；而语音回复不进对话历史，会把多轮上下文截断，所以必须真的可关。
+        """
+        try:
+            p = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                "config", "astrbot_plugin_shihai_behavior_config.json")
+            with open(p, encoding="utf-8-sig") as f:
+                cfg = json.load(f)
+            pct = cfg.get("voice", {}).get("speak", {}).get("speak_prob_percent", 0)
+            return max(0.0, min(1.0, float(pct) / 100.0))
+        except Exception:
+            return 0.0
+
+    def _log_voice(self, event, sent: bool, reason: str, e_z: float = 0.0):
+        """语音触发埋点。48 小时后要回答"声音跟状态走"是变好还是变吵。
+
+        一次一行，失败静默 —— 埋点绝不能影响回复本身。
+        """
+        try:
+            root = os.path.dirname(os.path.dirname(os.path.dirname(
+                os.path.abspath(__file__))))
+            d = os.path.join(root, "plugin_data", "shihai")
+            os.makedirs(d, exist_ok=True)
+            with open(os.path.join(d, "voice_metrics.jsonl"), "a", encoding="utf-8") as f:
+                f.write(json.dumps({
+                    "ts": round(time.time(), 1),
+                    "sent": bool(sent),
+                    "reason": reason,
+                    "e_z": round(float(e_z), 2),
+                    "in_len": len(str(getattr(event, "message_str", "") or "")),
+                }, ensure_ascii=False) + "\n")
+        except Exception:  # noqa: BLE001
+            pass
 
     @filter.on_decorating_result()
     async def auto_voice_reply(self, event: AstrMessageEvent):
@@ -771,24 +810,80 @@ class DafeiyuCoreMixin:
         if not result or not getattr(result, "chain", None):
             return
         chain = result.chain
-        # 1) 无论是否转语音，先剥离句首【语气】标注（文字里不该显示）
+        # 1) 无论是否转语音，先剥离【语气】标注（文字里不该显示）
+        #    旧逻辑只看句首、只处理第一个含【的组件（还带 break），多段回复里第二段的
+        #    标注会原样发到用户侧。这里改成遍历全部 Plain、剥干净所有语气标注块。
         directive = ""
         for comp in chain:
-            if isinstance(comp, Plain) and comp.text and comp.text.startswith("【"):
-                directive, stripped = self._split_voice_tag(comp.text)
-                if directive:
-                    comp.text = stripped
-                break
+            if not isinstance(comp, Plain) or not comp.text:
+                continue
+            if "【" not in comp.text:
+                continue
+            text = comp.text
+            # 句首的【…】优先作为语气指令（TTS 用）
+            m = re.match(r"^\s*【([^】]*)】\s*", text)
+            if m and not directive:
+                directive = m.group(1).strip()
+            # 全文本剥掉语气标注：既含明确写"语气："的，也含独立成行的【…】短标注
+            cleaned = re.sub(r"【语气[：:][^】]*】", "", text)
+            cleaned = re.sub(r"(?m)^\s*【[^】\n]{0,12}】\s*$", "", cleaned)
+            cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+            comp.text = cleaned
         # 2) 非LLM结果不转语音
         try:
             if hasattr(result, "is_llm_result") and not result.is_llm_result():
                 return
         except Exception:
             pass
-        # 3) 概率与条件：单条短文本
+        # 3) 触发：情绪显著偏离基线时必发，平时才抽签。
+        #    原来是无条件 5% 抽签，跟她开心还是低落毫无关系 —— 等于把
+        #    "声音能表达情绪"这一半能力丢掉了。
         import random as _random
-        if _random.random() > self._AUTO_VOICE_PROB:
+        e_z = 0.0
+        local_tone = ""
+        try:
+            st = self._read_state() or {}
+            e_vec = (st.get("e") or {})
+            dom = str(st.get("e_dom") or "")
+            if not dom and e_vec:
+                dom = max(e_vec, key=lambda k: float(e_vec.get(k, 0.0)))
+            val = float(st.get("e_dom_value") or 0.0)
+            if val <= 0 and e_vec:
+                val = max((float(v) for v in e_vec.values()), default=0.0)
+            eb = self._emotion_baseline()
+            if eb is not None and dom:
+                e_z = float(eb.peek(val))
+                local_tone = str(eb.tone(dom, val) or "")
+        except Exception:  # noqa: BLE001 - 拿不到状态就退回纯概率
+            e_z, local_tone = 0.0, ""
+        # 情绪是必要条件，不是充分条件：语音比文字"重"，会打断阅读节奏。
+        # 双向阈值 + 场景门槛，让"发语音"这件事语义清晰 —— 它代表"情绪上头"，
+        # 而不是"这次抽中了"。
+        force = e_z >= 1.5          # 开心到一定程度：声音能感染人
+        soft_block = e_z <= -1.5    # 明显低落：别用假热情的声音，文字更有分寸
+        hour_now = time.localtime().tm_hour
+        dense = False
+        long_msg = False
+        try:
+            now_ts = time.time()
+            buf = list(getattr(self, "_mem_buffer", []) or [])
+            # 60 秒内连着说话 = 在快速刷消息，插一条语音只会打断
+            if len(buf) >= 2 and (now_ts - float(buf[-2].get("ts", 0.0))) < 60:
+                dense = True
+            long_msg = len(str(getattr(event, "message_str", "") or "")) >= 30
+        except Exception:  # noqa: BLE001
+            pass
+        if soft_block or dense or hour_now >= 23 or hour_now < 6:
+            why = ("低落只发文字" if soft_block
+                   else ("快速刷屏" if dense else "深夜"))
+            self._log_voice(event, False, why, e_z)
+            return                  # 这几档一律只用文字
+        if long_msg:
+            force = True            # 对方正在认真说一件事，用声音接更合适
+        if not force and _random.random() > self._auto_voice_prob():
+            self._log_voice(event, False, "抽签未中", e_z)
             return
+
         first = chain[0] if chain else None
         if len(chain) != 1 or not isinstance(first, Plain) or not first.text or len(first.text) > self._AUTO_VOICE_MAXLEN:
             return
@@ -797,7 +892,10 @@ class DafeiyuCoreMixin:
         # 4) 豆包TTS（失败则保持文字）
         try:
             path = os.path.join(self._voice_cache_dir(), f"tts_{int(time.time() * 1000)}.mp3")
-            tagged = f"【{directive}】{first.text}" if directive else first.text
+            # 语气：情绪显著时以本地 e 为准（声音跟状态走，不跟文字走）；
+            # 不显著时保留 LLM 那句标注 —— 那时差异本来就小，细节更像人话。
+            tone = local_tone if (e_z >= 0.6 and local_tone) else directive
+            tagged = f"【{tone}】{first.text}" if tone else first.text
             await self._tts_to_file(tagged, path)
             # 换成 Record 之后 chain 里就没有文字了，框架不会把这句写进历史；
             # 先挂到 event 上，发送结束（框架落库之后）由 after_message_sent 统一补记。
@@ -810,6 +908,7 @@ class DafeiyuCoreMixin:
             chain.clear()
             chain.append(Record.fromFileSystem(path))
             self._cleanup_later(path)
+            self._log_voice(event, True, "情绪上头" if e_z >= 1.5 else "抽签命中", e_z)
             logger.info(f"大肥鱼自动发了一条语音: {first.text[:30]}")
         except Exception as e:
             logger.warning(f"自动语音失败，保留文字回复: {type(e).__name__} {e}")
@@ -982,19 +1081,29 @@ class DafeiyuCoreMixin:
                 parts.append(f"【{fn[:-3]}】{f.read().strip()}")
         return "\n\n".join(parts)[-3000:]
 
+    DIARY_MIN_INTERVAL = 60  # 秒：write_diary 短时重复写入拦截窗口（打断重跑防护）
+
     @filter.llm_tool("write_diary")
     async def write_diary(self, event: AstrMessageEvent, content: str):
         """在自己的私密日记本里写一篇日记，记录今天发生的事、心情或想法。
+        同一轮对话里不要就同一件事重复写；如果本次已经写过，就不要再调本工具。
 
         Args:
             content (str): 日记正文（一段完整的话，可以用自己的语气写得活泼一点）
         """
         try:
+            now_ts = time.time()
+            last = getattr(self, "_last_diary_write_at", 0.0)
+            if now_ts - last < self.DIARY_MIN_INTERVAL:
+                logger.info(
+                    "write_diary 短时重复调用，拦截（距上次 %.0f 秒）", now_ts - last)
+                return "刚刚已经记过一篇啦，同一件事不重复写。"
             fname = datetime.now().strftime("%Y-%m-%d") + ".md"
             ts = datetime.now().strftime("%H:%M")
             path = os.path.join(self._diary_dir(), fname)
             with open(path, "a", encoding="utf-8") as f:
                 f.write(f"\n## {ts}\n{content}\n")
+            self._last_diary_write_at = time.time()
             logger.info(f"大肥鱼写了日记: {fname}")
             return "日记写好啦，收进小本本里了。"
         except Exception as e:

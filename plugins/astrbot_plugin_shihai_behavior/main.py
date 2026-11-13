@@ -27,6 +27,7 @@ import random
 import re
 import socket
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, Optional
 from urllib.parse import urlparse
@@ -43,9 +44,12 @@ from .behavior.evolution import EvolutionEngine
 from .behavior.generator import ProactiveSender
 from .behavior.policy import PolicyEngine
 from .behavior.tasks import TaskEngine
+from .behavior.schedule import ScheduleStore
 from .cover import CoverMixin
 from .dafeiyu_core import DafeiyuCoreMixin
 from .draw import DrawMixin
+from .modules import privacy_gate as privacy_mod
+from .modules import utterance_mode as utterance_mod
 from .modules.toolbox import _SelfBotEvent
 from .suite import ToolboxSuiteBase
 
@@ -129,6 +133,10 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
             data_dir,
             send_text=self.sender.send,
             sms_records_path=Path(get_astrbot_plugin_data_path()) / "shihai_sms" / "sms_records.json")
+        self._schedule = ScheduleStore(
+            json_path=Path(__file__).parent / "schedule.json",
+            fired_path=data_dir / "schedule_fired.json",
+            watcher_interval=self.watcher_interval)
 
         # §12.5 提示词瘦身：指令只留"情绪一句、记忆引用一句、时间纪律一句、边界一句"。
         # 旧版 430 字/轮 → 新版约 160 字/轮；长解释交给意图包本身的时间标签与语料。
@@ -237,10 +245,32 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
         usable = [b for b in self.behaviors
                   if now - self._action_last_at.get(str(b.get("id", "")), 0.0)
                   >= int(b.get("cooldown", self.action_cooldown))]
-        action, anchor, score = self.policy.select(state, usable, kinds, caps)
+        # 冷落加成：Q 表越赢越赢，会把别的出口饿死（实测 10 天里承诺跟进占
+        # 67%，五条行为一次没露面）。24 小时没出场的行为每小时补 0.02，封顶
+        # 0.5 —— 只补到"能参与竞争"，不硬塞。
+        bonus: Dict[str, float] = {}
+        for b in self.behaviors:
+            bid = str(b.get("id", ""))
+            if not b.get("proactive") or not b.get("enabled", True):
+                continue
+            gap_h = (now - self._action_last_at.get(bid, 0.0)) / 3600.0
+            if gap_h > 24:
+                bonus[bid] = min(0.5, 0.02 * (gap_h - 24))
+        action, anchor, score = self.policy.select(
+            state, usable, kinds, caps, bonus=bonus)
         if action is None:
             action, anchor, score = self.policy.select(
-                state, self.behaviors, kinds, caps)
+                state, self.behaviors, kinds, caps, bonus=bonus)
+        if action is None:
+            # 锚点类型把候选池锁死（只有 promise 锚点 → 只有承诺跟进可选）。
+            # 这时才对"最久没露面"的行为放宽锚点，别让某一类事由彻底垄断。
+            stale = [b for b in self.behaviors
+                     if b.get("proactive") and b.get("enabled", True)
+                     and now - self._action_last_at.get(str(b.get("id", "")), 0.0)
+                     >= 24 * 3600]
+            if stale:
+                action, anchor, score = self.policy.select(
+                    state, stale, kinds, caps, bonus=bonus, ignore_anchor=True)
         return action, anchor, score
 
     def _read_state(self) -> Dict[str, Any]:
@@ -523,8 +553,11 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
             key = str(getattr(event, "unified_msg_origin", "") or "")
             if not key or (sender and sender == self.bot_qid):
                 return
-            if sender and self.owner_qid and sender != self.owner_qid:
-                return  # 只管与鑫鑫的会话；别人的历史不掺手
+            # 这里曾经只对 owner 会话补记（sender != owner_qid 就 return）。
+            # 但语音出口的正文被换成 Record 后框架不落库，限制一加，非 owner 会话的
+            # assistant 轮就整段丢失：ctx_msgs 停止增长，她下一轮不知道自己刚说过什么。
+            # 补记是"按实际发出的 chain 记一条 assistant 轮"，对所有会话都成立，
+            # 故不再按 owner 区分。
             voices = list(event.get_extra("_shihai_voice_text") or [])
             if voices:
                 event.set_extra("_shihai_voice_text", [])
@@ -672,6 +705,17 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
                 await self.memory_inject(event, req)
             except Exception as e:  # noqa: BLE001 - 记忆失败不能打断对话
                 logger.warning(f"[识海行为] 记忆注入调用失败: {type(e).__name__} {e}")
+            # 隐私追问门：在 LLM 之前判定"这句话在问什么"，按性质给结论。
+            # 必须放在这里 —— 下面有两处 return 会在非主人会话提前退出，
+            # 放到后面就永远执行不到，而那恰恰是最需要它的场景。
+            try:
+                _pg = privacy_mod.guard(
+                    str(getattr(event, "message_str", "") or ""),
+                    viewer_is_owner=(sender == str(self.owner_qid or "")))
+                if _pg:
+                    req.prompt = (str(req.prompt or "") + "\n\n" + _pg)
+            except Exception as e:  # noqa: BLE001 - 门失败不能打断对话
+                logger.warning(f"[识海行为] 隐私门失败: {type(e).__name__} {e}")
             # E 组（自我状态分区）：非主人会话拿自己的 z_s + z_r，
             # 不含主人的 G_active / fire_pending / last_decision。
             if sender != self.owner_qid:
@@ -723,11 +767,30 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
                                   "。这一句如果没给新的名字，就按这个对象理解，别反问「她是谁」。")
             # 意图包/决策档案挪到当前消息末尾而非 system_prompt：
             # system+历史保持恒定才能命中模型前缀缓存（同 dafeiyu_core 的做法）。
+            # 语片模式：本地判这一轮用编排还是整段说完。
+            # free 时必须换掉配置里那段分条指令——两段同时给会互相打架，
+            # "最后一句轻收"这条更结构化的指令会把「我去给你倒杯热水」压成收尾。
+            try:
+                _msg = str(getattr(event, "message_str", "") or "")
+                _ez = 0.0
+                try:
+                    _eb = self._emotion_baseline()
+                    if _eb is not None:
+                        _ez = float(_eb.peek(float(state.get("e_dom_value") or 0.0)))
+                except Exception:  # noqa: BLE001 - 拿不到基线就按 0 处理
+                    _ez = 0.0
+                _mode = utterance_mod.mode_for(
+                    e_z=_ez,
+                    urgency=float(state.get("urge") or 0.0) / 3.0,
+                    comforting=utterance_mod.looks_comforting(_msg))
+                _utt_rule = utterance_mod.rule_for(_mode)
+            except Exception:  # noqa: BLE001
+                _utt_rule = self.intent_instruction_passive
             req.prompt = (str(req.prompt or "") + "\n\n"
                           + intent_mod.format(pkg)
                           + ("\n" + extra if extra else "")
                           + focus_line
-                          + "\n" + self.intent_instruction_passive)
+                          + "\n" + _utt_rule)
         except Exception as e:  # noqa: BLE001 - 钩子绝不能打断对话
             logger.warning(f"[识海行为] 意图包注入失败: {type(e).__name__} {e}")
 
@@ -768,6 +831,11 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
             await self._remind_commitments(state)
         except Exception as e:  # noqa: BLE001 - 提醒故障不能拖垮行为层
             logger.warning(f"[识海行为] 承诺提醒推进失败: {type(e).__name__} {e}")
+        # 课表 B 档：到课前提醒窗口主动发一次，fired 落盘去重
+        try:
+            await self._check_class_reminders()
+        except Exception as e:  # noqa: BLE001 - 课表提醒故障不能拖垮心跳
+            logger.warning(f"[课表] 课前提醒推进失败: {type(e).__name__} {e}")
         # 晨间简报：一天一条，把当天还没做完的账一次说清（没内容就不打扰）
         try:
             await self._maybe_morning_brief()
@@ -809,6 +877,23 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
                                "anchor_node": "", "emitted_at": emitted_at,
                                "skip": True})
             return
+        # 抢话判断：主人正在连着说，她插一句「我去给你倒杯热水」就从关心变成打断。
+        # 只拦"开口"三类之外的文字行为；说说/画画/唱歌不是对话，不受此限。
+        # 手动 behavior_fire_now 不走这里——那是主人明确要求"你现在找我一次"。
+        if str(action.get("id", "") or "") not in ("post_feed", "draw_share", "sing_cover"):
+            try:
+                _hold_n, _hold_gap, _hold_last = self._recent_for_hold()
+                if utterance_mod.should_hold(_hold_n, _hold_gap, _hold_last):
+                    logger.info("[识海行为] 对方还在说（%d 条 / 间隔 %.1f 秒），本次推迟开口",
+                                _hold_n, _hold_gap)
+                    self._last_fire_emitted_at = emitted_at
+                    # 不写 ok=False：这是时机不对，不是行为失败，不该扣它的 Q。
+                    self._write_fired({"action": "", "text": "", "anchor_node": "",
+                                       "emitted_at": emitted_at, "skip": True,
+                                       "hold": True})
+                    return
+            except Exception as e:  # noqa: BLE001 - 判断失败不能挡住开口
+                logger.debug(f"[识海行为] 抢话判断失败: {type(e).__name__} {e}")
         outcome = await self._execute(action, anchor, state, pending)
         if not outcome or not outcome.get("ok"):
             reason = str((outcome or {}).get("error", "") or "未知原因")
@@ -898,6 +983,43 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
             except Exception as e:  # noqa: BLE001
                 logger.warning(f"[承诺] 单条提醒异常: {type(e).__name__} {e}")
 
+    # ---------- 课表：配置、免打扰、课前提醒 ----------
+
+    def _schedule_cfg(self) -> Dict[str, Any]:
+        cfg = self.config.get("schedule")
+        return cfg if isinstance(cfg, dict) else {}
+
+    @staticmethod
+    def _now_is_quiet(now: float) -> bool:
+        """与 tasks.py 的 quiet_hours [23,7) 同口径。"""
+        h = time.localtime(now).tm_hour
+        return h >= 23 or h < 7
+
+    async def _check_class_reminders(self) -> None:
+        cfg = self._schedule_cfg()
+        if not cfg.get("enabled", True):
+            return
+        rem = cfg.get("reminder")
+        rem = rem if isinstance(rem, dict) else {}
+        if not rem.get("enabled", True):
+            return
+        lead = int(rem.get("lead_minutes", 20) or 20)
+        quiet = (bool(rem.get("respect_quiet", True))
+                 and self._now_is_quiet(time.time()))
+        for day_key, key, msg in self._schedule.due_reminders(
+                time.time(), lead, quiet):
+            ok = await self.sender.send(msg)
+            if not ok:
+                logger.warning("[课表] 提醒发送失败，下轮重试：%s", msg[:20])
+                continue
+            self._schedule.mark_fired(day_key, key)
+            try:
+                await self._remember_self_line(
+                    self.sender.target, msg, tag="课前提醒")
+            except Exception:  # noqa: BLE001
+                pass
+            logger.info("[课表] 已发课前提醒：%s", msg[:20])
+
     # ---------- 晨间简报（一天一条，有内容才发） ----------
 
     def _brief_state_path(self) -> str:
@@ -967,21 +1089,24 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
                 return ""
 
         ledger = getattr(self, "_commit", None)
-        if ledger is None:
-            return ""
-        try:
-            rows = ledger.open_items("owner", time.time())
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"[晨间简报] 取承诺失败: {type(e).__name__} {e}")
-            return ""
-        if not rows:
-            if not force:
-                self._brief_day = day  # 今天没账可催，不再重试
-            return ""
+        rows = []
+        if ledger is not None:
+            try:
+                rows = ledger.open_items("owner", time.time())
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"[晨间简报] 取承诺失败: {type(e).__name__} {e}")
+
+        # C 档：当天课表块（开关关闭或无数据时为空串）
+        sched_block = ""
+        if self._schedule_cfg().get("morning_brief", True):
+            try:
+                w = self._schedule.current_week()
+                sched_block = self._schedule.format_day(
+                    w, now.weekday() + 1, title="今天的课：")
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"[晨间简报] 取课表失败: {type(e).__name__} {e}")
 
         rows = sorted(rows, key=lambda x: (x.due_ts or float("inf")))
-        weekday = "一二三四五六日"[now.weekday()]
-        head = f"早。今天 {now.month} 月 {now.day} 号，周{weekday}。"
         items: list[str] = []
         for x in rows[:5]:
             text = str(getattr(x, "text", "") or "").strip()
@@ -994,15 +1119,27 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
                 items.append(f"- {text}（{when}）")
             else:
                 items.append(f"- {text}")
-        if not items:
+
+        if not items and not sched_block:
+            if not force:
+                self._brief_day = day  # 今天没账也没课，不再重试
             return ""
-        msg = (head + "\n你答应过、还没做完的：\n" + "\n".join(items)
-               + "\n我不催，到点我自己记着说一声。")
+
+        weekday = "一二三四五六日"[now.weekday()]
+        head = f"早。今天 {now.month} 月 {now.day} 号，周{weekday}。"
+        parts = [head]
+        if sched_block:
+            parts.append(sched_block)
+        if items:
+            parts.append("你答应过、还没做完的：\n" + "\n".join(items)
+                         + "\n我不催，到点我自己记着说一声。")
+        msg = "\n".join(parts)
 
         if not send:
             return msg
         try:
-            ledger.guard_owner_target(self.sender.target, self.owner_qid)
+            if items:  # 只有含承诺账时才校验目标，纯课表不拦
+                ledger.guard_owner_target(self.sender.target, self.owner_qid)
             ok = await self.sender.send(msg)
         except Exception as e:  # noqa: BLE001
             logger.warning(f"[晨间简报] 发送异常: {type(e).__name__} {e}")
@@ -1028,6 +1165,22 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
             return
         text = await self._maybe_morning_brief(force=True, send=False)
         yield event.plain_result(text or "今天没有要催你的账。")
+
+    @filter.command("课表", alias={"课程", "今天的课"})
+    async def cmd_schedule(self, event: AstrMessageEvent):
+        """手动查今天的课。用法：/课表"""
+        sid = str(getattr(event, "get_sender_id", lambda: "")() or "")
+        if str(self.owner_qid) and sid != str(self.owner_qid):
+            yield event.plain_result("这个只给鑫鑫看。")
+            return
+        if not self._schedule_cfg().get("enabled", True):
+            yield event.plain_result("课表功能现在关着。")
+            return
+        now = datetime.now()
+        week = self._schedule.current_week(now.timestamp())
+        block = self._schedule.format_day(
+            week, now.weekday() + 1, title="今天的课：")
+        yield event.plain_result(f"第{week}周。\n{block}")
 
     def _write_fired(self, sig: Dict[str, Any]):
         try:
@@ -1091,6 +1244,35 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
         except Exception as e:  # noqa: BLE001
             logger.warning(f"[识海行为] 生成失败: {type(e).__name__} {e}")
             return ""
+
+    def _recent_for_hold(self, window: float = 90.0):
+        """主动开口前的"对方是不是还在说"探测 → (条数, 距上一条秒, 最后一条文本)。
+
+        数据只能来自 transcript：对话层有 sender_id / origin，事实层没有。
+        所以这件事本身就是"只能用对话层做"的判断。
+
+        origin 用尾部匹配而不是整串相等 —— 历史上 platform_id 换过，库里同时
+        存在 `napcat:FriendMessage:<qq>` 和 `qq:FriendMessage:<qq>` 两种写法。
+        """
+        try:
+            now = time.time()
+            rows = self._transcript.get_range(now - window, now)
+        except Exception as e:  # noqa: BLE001 - 探测失败按"没人说话"处理
+            logger.debug(f"[识海行为] 抢话探测失败: {type(e).__name__} {e}")
+            return 0, 999.0, ""
+        target = str(getattr(self.sender, "target", "") or "")
+        tail = target.split(":", 1)[-1] if ":" in target else target
+        rows = [r for r in rows
+                if str(r.get("role", "")) == "user"
+                and (not tail or str(r.get("origin", "")).endswith(tail))]
+        if not rows:
+            return 0, 999.0, ""
+        last = rows[-1]
+        try:
+            gap = max(0.0, now - float(last.get("ts") or 0))
+        except (TypeError, ValueError):
+            gap = 999.0
+        return len(rows), gap, str(last.get("content", "") or "")
 
     # ---------- 行为执行：文字 / 说说 / 画画 / 唱歌 ----------
 
@@ -1321,6 +1503,21 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
 
     # ---------- LLM 工具：生活任务 ----------
 
+    @filter.llm_tool("query_schedule")
+    async def query_schedule(self, event: AstrMessageEvent, day: str = "today"):
+        """查某天的课表。主人问「今天/明天有什么课」「几点上课」「这周第几周」时用。
+
+        Args:
+            day (str): "today" 或 "tomorrow"
+        """
+        is_tomorrow = str(day).strip().lower() in ("tomorrow", "明天", "1")
+        now = datetime.now() + (timedelta(days=1) if is_tomorrow
+                                else timedelta())
+        week = self._schedule.current_week(now.timestamp())
+        title = ("明天" if is_tomorrow else "今天") + "的课："
+        block = self._schedule.format_day(week, now.weekday() + 1, title=title)
+        return f"第{week}周。\n{block}"
+
     @filter.llm_tool("task_list")
     async def task_list(self, event: AstrMessageEvent):
         """查看当前生活任务（待确认/已排期/已提醒/已延后）及每条任务的来源、状态和排期理由。主人问「我有什么待办」「快递任务到哪一步了」时用。"""
@@ -1390,7 +1587,7 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
     @filter.llm_tool("recall_transcript")
     async def recall_transcript(self, event: AstrMessageEvent, keyword: str,
                                days: int = 30, role: str = ""):
-        """检索你和鑫鑫过去对话的逐字原文。需要确认某句话当初到底怎么说、回忆某次具体对话时用；不是每轮都调，只在需要原话时用，返回内容不会常驻上下文。
+        """检索你和对方过去对话的逐字原文。需要确认某句话当初到底怎么说、回忆某次具体对话时用；不是每轮都调，只在需要原话时用，返回内容不会常驻上下文。
 
         Args:
             keyword (str): 要找的关键词，如人名、地点、事情
@@ -1406,22 +1603,36 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
         except (TypeError, ValueError):
             pass
         origin = str(getattr(event, "unified_msg_origin", "") or "")
+        # origin 为空时不检索：否则 search 会退化成全库扫描，
+        # 把别的会话（含主人私聊）的原话捞到当前这个人的上下文里。
+        if not origin:
+            return "这个会话没有可检索的记录。"
+        is_owner = str(event.get_sender_id() or "") == str(self.owner_qid or "")
         r = (role or "").strip()
         if r not in ("user", "assistant"):
             r = None
         rows = await asyncio.to_thread(
             self._transcript.search, kw,
-            origin=origin or None, since=since, role=r,
+            origin=origin, since=since, role=r,
             limit=5, snippet=200)
         if not rows:
             return f"没找到和「{kw}」有关的原话。"
+        who_user = "鑫鑫" if is_owner else "对方"
         lines = ["【逐字原话检索】关键词：" + kw]
         for it in rows:
             when = time.strftime("%m-%d %H:%M", time.localtime(it.get("ts", 0)))
-            who = "鑫鑫" if it.get("role") == "user" else "小满"
+            who = who_user if it.get("role") == "user" else "小满"
+            body = str(it.get("content", "") or "")
+            # 非本人视角：原话里可能带着主人的专名、号码、具体日期。
+            # 按 D2 改写（去专名保轮廓），既守得住又能回答"当时大概说了什么"。
+            if not is_owner:
+                try:
+                    body = self._mem_disclose(body, 2) or "（这段涉及别人的私事，跳过）"
+                except Exception:  # noqa: BLE001
+                    body = "（这段涉及别人的私事，跳过）"
             tag = (f"（{it.get('kind')}）"
                    if it.get("kind") not in (None, "text") else "")
-            lines.append(f"{when} {who}{tag}：{it.get('content', '')}")
+            lines.append(f"{when} {who}{tag}：{body}")
         lines.append("（这些是当时的逐字原文，可直接引用；没列出的不要补编。）")
         return "\n".join(lines)
 

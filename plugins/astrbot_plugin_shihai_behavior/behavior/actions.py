@@ -18,6 +18,38 @@ import tempfile
 from typing import Any, Dict, List, Optional
 
 # 锚点类型（核心 fire_pending.anchors[].kind）→ 缺省行为映射
+
+# 说话形态（本地决定"该说什么"，LLM 只负责把这一句填出来）。
+#
+# 为什么必须分：四个主动来源不能等价。冷落抬升是"她有点想说话"，承诺临近是
+# "有件事必须说清楚"，自发漂移是"想分享个东西"。如果不分，就会出这种场面——
+# 她自己无聊了，突然严肃提醒你交材料。这是人格分裂，不是个性。
+#
+# chat   : 轻量搭话，不携带任何待办/要求
+# remind : 明确提醒，必须带出"什么事、什么时候"
+# share  : 分享手上的东西，不借机提要求
+SPEECH_KIND: Dict[str, str] = {
+    "proactive_greeting": "chat",
+    "care_inquiry":       "chat",
+    "proactive_chat":     "chat",
+    "recall_share":       "share",
+    "promise_followup":   "remind",
+    "sing_cover":         "share",
+    "draw_share":         "share",
+    "post_feed":          "share",
+}
+
+
+def speech_kind_of(action: Optional[Dict[str, Any]]) -> str:
+    """取行为的说话形态。注册表里没写就按 id 查表，再退 chat。"""
+    if not action:
+        return "chat"
+    explicit = str(action.get("speech_kind") or "").strip()
+    if explicit in ("chat", "remind", "share"):
+        return explicit
+    return SPEECH_KIND.get(str(action.get("id", "")), "chat")
+
+
 DEFAULT_BEHAVIORS: List[Dict[str, Any]] = [
     {
         "id": "proactive_greeting", "label": "主动打招呼", "category": "主动行为",
@@ -85,13 +117,19 @@ DEFAULT_BEHAVIORS: List[Dict[str, Any]] = [
 
 
 def load_registry(path: str) -> List[Dict[str, Any]]:
-    """加载 behaviors.json；不存在则从默认表写出。坏文件回退默认表。"""
+    """加载 behaviors.json；不存在则从默认表写出。坏文件回退默认表。
+
+    老注册表没有 speech_kind 字段，读出来时按 id 补齐，不用手改 json。
+    """
     if os.path.exists(path):
         try:
             with open(path, "r", encoding="utf-8-sig") as fh:
                 data = json.load(fh)
             rows = data.get("behaviors", []) if isinstance(data, dict) else data
             if isinstance(rows, list) and rows:
+                for r in rows:
+                    if isinstance(r, dict) and "speech_kind" not in r:
+                        r["speech_kind"] = SPEECH_KIND.get(str(r.get("id", "")), "chat")
                 return rows
         except (OSError, ValueError):
             pass

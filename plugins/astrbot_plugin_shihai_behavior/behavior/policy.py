@@ -54,16 +54,24 @@ class PolicyEngine:
         self, state: Dict[str, Any], behaviors: List[Dict[str, Any]],
         anchor_kinds: List[str],
         available_needs: Optional[Set[str]] = None,
+        bonus: Optional[Dict[str, float]] = None,
+        ignore_anchor: bool = False,
     ) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]], float]:
         """从涌现候选中选一个行为。
 
         候选条件：enabled + proactive + 锚点匹配 + requires 满足 + 适配器可用。
         available_needs：本次运行真正可用的出口（qzone/draw/ai_cover）。
         未传时按"没有适配器"处理，避免把不可执行的行为选中后空转。
+
+        bonus：冷落加成。Q 表是正反馈——被回应过的出口越赢越赢，最后垄断
+        （实测 10 天里承诺跟进占 67%，五条行为一次没露面）。bonus 给长期没
+        出场的出口一点补偿，让打分重新有机会竞争。
+        ignore_anchor：锚点放宽（仅在严格候选池为空时用，避免锁死）。
         """
         best: Optional[Tuple[float, Dict[str, Any], Dict[str, Any]]] = None
         eps = self.explore_epsilon(float(
             (state.get("goals", {}) or {}).get("g_relation", 0.5)))
+        bo = bonus or {}
         for act in behaviors:
             if not act.get("enabled", True) or not act.get("proactive"):
                 continue
@@ -73,10 +81,14 @@ class PolicyEngine:
             anchors = act.get("anchor") or ["recent"]
             matched = next((a for a in anchor_kinds if a in anchors), None)
             if matched is None:
-                continue
+                if not ignore_anchor:
+                    continue
+                matched = anchor_kinds[0] if anchor_kinds else "will"
             if not check_requires(act, state):
                 continue
-            s = self.score(state, act, eps) + random.random() * 0.05
+            s = (self.score(state, act, eps)
+                 + float(bo.get(str(act.get("id", "")), 0.0))
+                 + random.random() * 0.05)
             if best is None or s > best[0]:
                 anchor = next((a for a in (state.get("fire_pending", {})
                                            or {}).get("anchors", [])

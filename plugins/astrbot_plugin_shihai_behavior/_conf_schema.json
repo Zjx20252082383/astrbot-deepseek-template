@@ -1029,5 +1029,49 @@
     "description": "文生图模型",
     "type": "string",
     "default": "wanx2.1-t2i-turbo"
+  },
+  "schedule": {
+    "description": "课表：周次/单双周、课前提醒、晨报联动",
+    "type": "object",
+    "hint": "课表内容来自插件根 schedule.json，改排课只改 JSON；这里只控制开关与提醒时机。",
+    "items": {
+      "enabled": {
+        "description": "启用课表功能",
+        "type": "bool",
+        "hint": "关掉后查询、课前提醒与晨报课表都不生效",
+        "default": true
+      },
+      "morning_brief": {
+        "description": "晨间简报附带当天课表",
+        "type": "bool",
+        "hint": "开启后晨报里追加当天的课",
+        "default": true
+      },
+      "reminder": {
+        "description": "课前主动提醒",
+        "type": "object",
+        "hint": "到课前固定分钟主动发一次，当天去重，不重复打扰",
+        "items": {
+          "enabled": {
+            "description": "启用课前提醒",
+            "type": "bool",
+            "hint": "",
+            "default": true
+          },
+          "lead_minutes": {
+            "description": "提前几分钟提醒",
+            "type": "int",
+            "hint": "如 20 表示开课前 20 分钟发",
+            "default": 20
+          },
+          "respect_quiet": {
+            "description": "免打扰时段不提醒",
+            "type": "bool",
+            "hint": "23:00-07:00 不发课前提醒",
+            "default": true
+          }
+        }
+      }
+    }
   }
 }

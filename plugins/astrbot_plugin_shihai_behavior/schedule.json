@@ -1,0 +1,97 @@
+{
+  "meta": {
+    "term": "2026-2027 第1学期",
+    "base_date": "2026-11-12",
+    "base_week": 11,
+    "week1_monday": "2026-08-31",
+    "total_weeks": 18,
+    "note": "week_range 为闭区间周次；parity: all=每周, even=偶数周, odd=奇数周"
+  },
+  "sections": {
+    "1": "08:00", "2": "08:50", "3": "10:05", "4": "10:55",
+    "5": "13:30", "6": "14:20", "7": "15:35", "8": "16:25",
+    "9": "18:00", "10": "18:55", "11": "19:50"
+  },
+  "courses": [
+    {
+      "name": "模拟与数字电子技术", "short": "模电",
+      "weekday": 2, "start": 1, "end": 2,
+      "week_range": [1, 12], "parity": "all",
+      "location": "B教学楼（房间号待补）"
+    },
+    {
+      "name": "模拟与数字电子技术", "short": "模电",
+      "weekday": 4, "start": 3, "end": 4,
+      "week_range": [1, 12], "parity": "all",
+      "location": "B教学楼（房间号待补）"
+    },
+    {
+      "name": "马克思主义基本原理", "short": "马原",
+      "weekday": 4, "start": 5, "end": 6,
+      "week_range": [1, 12], "parity": "all",
+      "location": "B教学楼（房间号待补）"
+    },
+    {
+      "name": "马克思主义基本原理（周一安排，规律待确认）", "short": "马原",
+      "weekday": 1, "start": 5, "end": 6,
+      "week_range": [1, 12], "parity": "all",
+      "location": "B教学楼（房间号待补）",
+      "uncertain": true,
+      "uncertain_reason": "仅第12周周一可见，第11周无、第14周无，疑似调课或前段常规，需确认"
+    },
+    {
+      "name": "大学英语3A", "short": "英语",
+      "weekday": 1, "start": 3, "end": 4,
+      "week_range": [1, 16], "parity": "even",
+      "location": "A教学楼（房间号待补）"
+    },
+    {
+      "name": "体育一专项1", "short": "体育",
+      "weekday": 2, "start": 3, "end": 4,
+      "week_range": [1, 16], "parity": "all",
+      "location": "体育馆（编号待补）"
+    },
+    {
+      "name": "计算机数学", "short": "计数学",
+      "weekday": 3, "start": 3, "end": 4,
+      "week_range": [1, 17], "parity": "all",
+      "location": "B教学楼（房间号待补）"
+    },
+    {
+      "name": "计算机数学", "short": "计数学",
+      "weekday": 5, "start": 1, "end": 2,
+      "week_range": [1, 17], "parity": "all",
+      "location": "B教学楼（房间号待补）"
+    },
+    {
+      "name": "数据结构", "short": "数据结构",
+      "weekday": 3, "start": 5, "end": 6,
+      "week_range": [1, 16], "parity": "all",
+      "location": "B教学楼（房间号待补）"
+    },
+    {
+      "name": "数据结构", "short": "数据结构",
+      "weekday": 5, "start": 5, "end": 6,
+      "week_range": [1, 16], "parity": "all",
+      "location": "B教学楼（房间号待补）"
+    },
+    {
+      "name": "大学物理A2", "short": "大物",
+      "weekday": 3, "start": 7, "end": 8,
+      "week_range": [1, 18], "parity": "all",
+      "location": "B教学楼（房间号待补）"
+    },
+    {
+      "name": "大学物理A2", "short": "大物",
+      "weekday": 1, "start": 7, "end": 8,
+      "week_range": [1, 18], "parity": "even",
+      "location": "B教学楼（房间号待补）"
+    },
+    {
+      "name": "数据结构与算法实验", "short": "数据结构实验",
+      "weekday": 3, "start": 9, "end": 11,
+      "week_range": [1, 16], "parity": "even",
+      "location": "C教学楼 C-400"
+    }
+  ]
+}

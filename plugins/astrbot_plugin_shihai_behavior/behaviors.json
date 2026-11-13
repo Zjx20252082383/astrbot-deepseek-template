@@ -74,7 +74,7 @@
    "anchor": [
     "revisit"
    ],
-   "enabled": true
+   "enabled": false
   },
   {
    "id": "promise_followup",
