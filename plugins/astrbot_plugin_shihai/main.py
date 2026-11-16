@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import time
 from pathlib import Path
 from typing import Any, Optional
@@ -34,6 +35,10 @@ PLUGIN_NAME = "astrbot_plugin_shihai"
 
 # 共享数据目录（契约：所有识海家族插件从这里读写，目录名不随插件改名变化）
 SHIHAI_DATA_DIR = "shihai"
+PSYCHE_PLUGIN = "astrbot_plugin_shihai_psyche"
+# 这些参数由心理模块持久化，核心只读取，不能另写一份配置与之竞争。
+PSYCHE_KEYS = frozenset(("O", "C", "E", "A", "N", "eff",
+                         "send_threshold", "tantrum_threshold"))
 
 
 def _as_bool(v: Any, default: bool) -> bool:
@@ -62,6 +67,8 @@ class ShihaiPlugin(Star):
         self.action_log_path = str(data_dir / "action_log.jsonl")
 
         self.engine = MindEngine(self.state_path, self.graph_path, dict(config))
+        # 重启后立即采用心理模块的持久值，不等下一次心跳纠正核心旧配置。
+        self.engine.sync_psyche(self.psyche_path)
         self.tick_seconds = max(30, int(config.get("tick_seconds", 60)))
         self.proactive_enabled = _as_bool(config.get("proactive_enabled"), False)
         self.owner_only_feedback = _as_bool(config.get("owner_only_feedback"), True)
@@ -207,6 +214,53 @@ class ShihaiPlugin(Star):
 
     # ---------- Web 观测 ----------
 
+    def _param_value(self, key: str):
+        """配置面板展示当前生效值，避免旧配置与状态观测显示不一致。"""
+        for values in (self.engine.state.psi, self.engine.state.theta,
+                       self.engine.state.goals):
+            if key in values:
+                return values[key]
+        return self.engine.cfg.get(key)
+
+    def _tune_param(self, key: str, value: float) -> float:
+        """网页与 LLM 工具共用；持久化成功后才确认调参成功。"""
+        lo, hi, is_int, _ = PARAM_META[key]
+        value = float(value)
+        if not math.isfinite(value):
+            raise ValueError("参数值必须是有限数字")
+        applied = max(lo, min(hi, value))
+        if is_int:
+            applied = int(round(applied))
+
+        if key in PSYCHE_KEYS:
+            metadata = self.context.get_registered_star(PSYCHE_PLUGIN)
+            if metadata is not None and metadata.activated and metadata.star_cls is not None:
+                setter = getattr(metadata.star_cls, "set_param", None)
+                if not callable(setter):
+                    raise RuntimeError("请同时更新识海心理插件，再修改人格或心理参数")
+                applied = setter(key, applied)
+                self.engine.set_param(key, applied)
+                self.engine.state.save()
+                return float(applied)
+            if Path(self.psyche_path).exists():
+                raise RuntimeError("存在心理状态文件，请先启用识海心理插件，再修改人格或心理参数")
+
+        # 未安装心理模块且没有旧文件时，保留核心独立调参的能力。
+        had_value = key in self.config
+        previous = self.config.get(key)
+        self.config[key] = int(applied) if is_int else round(applied, 4)
+        try:
+            self.config.save_config()
+        except Exception:
+            if had_value:
+                self.config[key] = previous
+            else:
+                self.config.pop(key, None)
+            raise
+        applied = self.engine.set_param(key, applied)
+        self.engine.state.save()
+        return applied
+
     async def _web_state(self):
         try:
             return {"status": "ok", "state": self.engine.snapshot()}
@@ -232,7 +286,7 @@ class ShihaiPlugin(Star):
                         "hi": hi,
                         "int": bool(is_int),
                         "desc": desc,
-                        "value": self.engine.cfg.get(k),
+                        "value": self._param_value(k),
                     })
                 return {"status": "ok", "params": rows, "state": self.engine.snapshot()}
 
@@ -240,13 +294,9 @@ class ShihaiPlugin(Star):
                 key = str(body.get("key") or "").strip()
                 if key not in PARAM_META:
                     return {"status": "error", "message": f"未知参数 {key}"}, 400
-                applied = self.engine.set_param(key, float(body.get("value")))
-                self.config[key] = int(applied) if PARAM_META[key][2] else round(applied, 4)
-                try:
-                    self.config.save_config()
-                except Exception:  # noqa: BLE001
-                    pass
-                return {"status": "ok", "message": f"{key} → {applied}", "state": self.engine.snapshot()}
+                applied = self._tune_param(key, float(body.get("value")))
+                return {"status": "ok", "message": f"{key} → {applied}",
+                        "key": key, "value": applied, "state": self.engine.snapshot()}
 
             if op == "emotion":
                 em = str(body.get("emotion") or "").strip().lower()
@@ -331,6 +381,8 @@ class ShihaiPlugin(Star):
                 }
 
             return {"status": "error", "message": f"未知操作 {op!r}"}, 400
+        except (TypeError, ValueError) as e:
+            return {"status": "error", "message": str(e)}, 400
         except Exception as e:  # noqa: BLE001
             return {"status": "error", "message": f"{type(e).__name__}: {e}"}, 502
 
@@ -403,13 +455,11 @@ class ShihaiPlugin(Star):
             val = float(str(value).strip())
         except (TypeError, ValueError):
             return f"参数值 {value!r} 不是数字，改不了。"
-        lo, hi, _i, desc = PARAM_META[key]
-        applied = self.engine.set_param(key, val)
-        self.config[key] = int(applied) if PARAM_META[key][2] else round(applied, 4)
+        desc = PARAM_META[key][3]
         try:
-            self.config.save_config()
-        except Exception:  # noqa: BLE001
-            pass
+            applied = self._tune_param(key, val)
+        except Exception as e:  # noqa: BLE001
+            return f"调参失败：{e}"
         return (f"已把 {key}（{desc}）调成 {applied}"
                 f"{'（已在合法范围内截断）' if applied != val else ''}，立即生效。")
 

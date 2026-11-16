@@ -976,6 +976,12 @@ body::before{
 
   /* ================= 数据源：直连 AstrBot 插件 z(t) 接口 ================= */
   var API = "/api/state", CMD = "/api/control";
+  function appliedTuneValue(payload){
+    if(!payload || typeof payload.value !== "number" || !isFinite(payload.value)){
+      throw new Error("核心未返回实际生效值，请确认已更新核心插件");
+    }
+    return payload.value;
+  }
   var S = null, prevPsi = null;
   var SER = {e:[], nodes:[], edges:[], rel:[], urge:[], theta:[], psiE:[]};
 
@@ -1541,26 +1547,30 @@ body::before{
       var val = parseFloat(input.value);
       if(!isFinite(val)){ toast("请输入数字"); return; }
       btn.textContent = "…";
+      btn.disabled = true;
       fetch(CMD, {method:"POST", headers:{"Content-Type":"application/json"},
                   body:JSON.stringify({op:"tune", key:key, value:val})})
         .then(function(r){ return r.json(); })
         .then(function(j){
           if(j.status === "ok" && j.payload && j.payload.status === "ok"){
-            row.querySelector(".cur").textContent = val;
+            var applied = appliedTuneValue(j.payload);
+            input.value = applied;
+            row.querySelector(".cur").textContent = applied;
             btn.textContent = "已写入";
-            setTimeout(function(){ btn.textContent = "写入"; }, 1200);
+            setTimeout(function(){ if(!btn.disabled) btn.textContent = "写入"; }, 1200);
             if(j.payload.state){ lastState = j.payload.state; _renderState(j.payload.state); }
             Array.prototype.forEach.call(document.querySelectorAll(".tcard"), function(el){
               el.classList.add("flash");
               setTimeout(function(){ el.classList.remove("flash"); }, 1400);
             });
-            toast(key + " → " + val + "（已热生效，曲线 1 秒内更新）");
+            toast(key + " → " + applied + "（已保存并生效）");
           }else{
             btn.textContent = "写入";
             toast("写入失败：" + ((j.payload && j.payload.message) || j.message || "unknown"));
           }
         })
-        .catch(function(err){ btn.textContent = "写入"; toast("写入失败：" + err.message); });
+        .catch(function(err){ btn.textContent = "写入"; toast("写入失败：" + err.message); })
+        .then(function(){ btn.disabled = false; });
     }
   });
   if($("cfg-modal")){
@@ -2145,23 +2155,28 @@ body::before{
     {key:"g_self",name:"自我目标 g_self",desc:"自我表达与成长"},
     {key:"g_avoid",name:"回避目标 g_avoid",desc:"规避不适的倾向"}
   ];
+  var sliderReadVersion = 0;
   function buildSliders(){
     $("slider-grid").innerHTML=SLIDER_SPECS.map(function(s){
       return '<div class="slider-row" data-key="'+s.key+'"><div class="sr-top">'+
         '<span class="sr-name">'+esc(s.name)+'</span><span class="sr-desc">'+esc(s.desc)+'</span>'+
         '<span class="sr-val" id="sv-'+s.key+'">—</span></div>'+
-        '<input type="range" min="0" max="1" step="0.01" data-key="'+s.key+'"></div>';
+        '<input type="range" min="0" max="1" step="0.01" data-key="'+s.key+'" disabled></div>';
     }).join("");
   }
   function initSliders(){
+    var version = ++sliderReadVersion;
     jget("/api/state").then(function(j){
+      if(version !== sliderReadVersion) return;
       if(j.status!=="ok"||!j.payload||!j.payload.state) throw new Error("状态未接通");
       var st=j.payload.state, psi=st.psi||{}, goals=st.goals||{};
       SLIDER_SPECS.forEach(function(s){
         var src=s.key.charAt(0)==="g"?goals:psi, v=src[s.key];
         if(v==null) v=0.5;
         var inp=document.querySelector('#slider-grid input[data-key="'+s.key+'"]');
+        if(inp.dataset.saving === "1") return;
         inp.value=v; $("sv-"+s.key).textContent=Number(v).toFixed(2);
+        inp.dataset.confirmed=String(v); inp.disabled=false;
       });
     }).catch(function(e){ toast("数值人格读取失败："+e.message); });
   }
@@ -2172,11 +2187,29 @@ body::before{
   $("slider-grid").addEventListener("change", function(e){
     var k=e.target.getAttribute("data-key");
     if(!k) return;
-    var val=parseFloat(e.target.value);
+    var inp=e.target, val=parseFloat(inp.value), failed=false;
+    ++sliderReadVersion;
+    inp.disabled=true; inp.dataset.saving="1";
+    $("sv-"+k).textContent=val.toFixed(2)+"（保存中…）";
     jsend("POST", CMD, {op:"tune", key:k, value:val}).then(function(j){
-      if(j.status==="ok"&&j.payload&&j.payload.status==="ok") toast(k+" → "+val.toFixed(2)+"（已热生效）");
-      else toast("写入失败："+((j.payload&&j.payload.message)||j.message||""));
-    }).catch(function(err){ toast("写入失败："+err.message); });
+      if(j.status!=="ok"||!j.payload||j.payload.status!=="ok"){
+        throw new Error((j.payload&&j.payload.message)||j.message||"未知错误");
+      }
+      var applied=appliedTuneValue(j.payload);
+      inp.value=applied; inp.dataset.confirmed=String(applied);
+      $("sv-"+k).textContent=applied.toFixed(2);
+      if(j.payload.state) renderState(j.payload.state);
+      toast(k+" → "+applied.toFixed(2)+"（已保存并生效）");
+    }).catch(function(err){
+      failed=true;
+      inp.value=inp.dataset.confirmed;
+      $("sv-"+k).textContent=Number(inp.dataset.confirmed).toFixed(2);
+      toast("写入失败："+err.message);
+    }).then(function(){
+      delete inp.dataset.saving; inp.disabled=false;
+      // 网络响应丢失时，服务端可能已经保存；重新读取真实值。
+      if(failed) initSliders();
+    });
   });
 
   /* ---- 初始化 + 切视图时刷新 ---- */

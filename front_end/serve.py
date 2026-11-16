@@ -343,8 +343,15 @@ def call_plugin(method: str, tail: str, body=None):
         except urllib.error.HTTPError as e:
             if e.code == 401 and attempt == 0:
                 continue
-            raw = e.read().decode("utf-8", "replace")[:400]
-            raise RuntimeError(f"HTTP {e.code}: {raw}")
+            raw = e.read().decode("utf-8", "replace")
+            try:
+                payload = json.loads(raw)
+            except ValueError:
+                payload = None
+            # 保留插件的业务错误，让观测台能显示“先启用心理插件”等具体原因。
+            if isinstance(payload, dict) and payload.get("status") == "error":
+                return e.code, payload
+            raise RuntimeError(f"HTTP {e.code}: {raw[:400]}")
     raise RuntimeError("鉴权失败")
 
 

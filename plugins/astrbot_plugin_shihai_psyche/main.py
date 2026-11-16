@@ -11,7 +11,8 @@
 
 from __future__ import annotations
 
-import os
+import copy
+import math
 from pathlib import Path
 from typing import Optional
 
@@ -59,6 +60,30 @@ class PsychePlugin(Star):
     def _flush(self):
         profile.save_state(self.state_path, self.state)
 
+    def set_param(self, key: str, value: float) -> float:
+        """人格/心理参数的唯一写入口，接受心理工具名和核心参数名。"""
+        key = {"send_threshold": "att", "tantrum_threshold": "tantrum"}.get(key, key)
+        lo, hi, _ = PSYCHE_PARAMS[key]
+        value = float(value)
+        if not math.isfinite(value):
+            raise ValueError("参数值必须是有限数字")
+        value = max(lo, min(hi, value))
+        updated = copy.deepcopy(self.state)
+        if key in _THETA_KEY:
+            updated["theta"][_THETA_KEY[key]] = value
+        else:
+            updated["psi"][key] = value
+        # 先原子保存，失败时内存也保持原值，不能返回“已生效”。
+        profile.save_state(self.state_path, updated)
+        self.state = updated
+        metadata = self.context.get_registered_star("astrbot_plugin_shihai")
+        if metadata is not None and metadata.activated and metadata.star_cls is not None:
+            engine = getattr(metadata.star_cls, "engine", None)
+            if engine is not None:
+                engine.set_param(_THETA_KEY.get(key, key), value)
+                engine.state.save()
+        return value
+
     # ---------- LLM 工具：调参接口 ----------
 
     @filter.llm_tool("psyche_tune")
@@ -80,13 +105,11 @@ class PsychePlugin(Star):
             val = float(str(value).strip())
         except (TypeError, ValueError):
             return f"参数值 {value!r} 不是数字，改不了。"
-        lo, hi, desc = PSYCHE_PARAMS[key]
-        val = max(lo, min(hi, val))
-        if key in _THETA_KEY:
-            self.state["theta"][_THETA_KEY[key]] = val
-        else:
-            self.state["psi"][key] = val
-        self._flush()
+        _lo, _hi, desc = PSYCHE_PARAMS[key]
+        try:
+            val = self.set_param(key, val)
+        except Exception as exc:  # noqa: BLE001
+            return f"心理调参失败：{exc}"
         logger.info(f"[识海心理] {key} → {val}")
         return f"已把心理参数 {key}（{desc}）调成 {val:.2f}，立即生效。"
 
@@ -113,7 +136,6 @@ class PsychePlugin(Star):
             self.state.get("defense_style", "auto"), self.state["psi"])
         eff = self.state["theta"].get("eff", 0.6)
         eff_drop = 0.1 if eff > 0.3 else 0.05
-        self.state["theta"]["eff"] = max(0.0, eff - eff_drop)
-        self._flush()
+        self.set_param("eff", max(0.0, eff - eff_drop))
         return (f"（{style}；自我效能 {eff:.2f}→{self.state['theta']['eff']:.2f}）"
                 f"事件：{outcome}——{detail}。按这个姿态自然带过或自嘲，别过度道歉。")

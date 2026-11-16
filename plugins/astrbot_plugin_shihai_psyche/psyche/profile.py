@@ -121,14 +121,18 @@ def load_state(path: str, cfg: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def save_state(path: str, data: Dict[str, Any]) -> None:
+    """原子保存；把错误交给调用方，避免写入失败仍提示成功。"""
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path) or ".", suffix=".tmp")
     try:
-        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path) or ".", suffix=".tmp")
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump(data, fh, ensure_ascii=False, indent=1)
         os.replace(tmp, path)
-    except OSError:
-        pass
+    finally:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
 
 
 def profile_text(data: Dict[str, Any]) -> str:
