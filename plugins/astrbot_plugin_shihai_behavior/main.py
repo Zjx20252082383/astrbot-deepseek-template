@@ -668,19 +668,19 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
             logger.warning(f"[inbox] 戳一戳处理失败: {type(e).__name__} {e}")
 
     # ---------- 生活任务：用户回执 ----------
+    def _is_owner_private_chat(self, event: AstrMessageEvent) -> bool:
+        return bool(self.owner_qid and event.is_private_chat()
+                    and str(event.get_sender_id() or "") == self.owner_qid)
+
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def task_observe(self, event: AstrMessageEvent):
         """只认主人对任务卡的明确回执，不抢普通聊天。"""
         try:
-            sender = str(event.get_sender_id() or "")
-            if sender != self.owner_qid:
+            if not self._is_owner_private_chat(event):
                 return
-            text = str(getattr(event, "message_str", "") or "").strip()
-            if not text:
-                return
-            reply = self.task_engine.handle_text(text)
+            reply = self.task_engine.handle_text(event.message_str)
             if reply:
-                yield event.plain_result(reply)
+                yield event.plain_result(reply).stop_event()
         except Exception as e:  # noqa: BLE001 - 任务回执失败不能打断对话
             logger.warning(f"[识海行为] 任务回执处理失败: {type(e).__name__} {e}")
 
@@ -1521,36 +1521,45 @@ class ShihaiBehaviorPlugin(CoverMixin, DafeiyuCoreMixin, DrawMixin, ToolboxSuite
     @filter.llm_tool("task_list")
     async def task_list(self, event: AstrMessageEvent):
         """查看当前生活任务（待确认/已排期/已提醒/已延后）及每条任务的来源、状态和排期理由。主人问「我有什么待办」「快递任务到哪一步了」时用。"""
+        if not self._is_owner_private_chat(event):
+            return "请在主人的私聊中查看生活任务。"
         return self.task_engine.format_list()
+
+    def _apply_task_tool(self, event: AstrMessageEvent, action: str, task_id: str):
+        if not self._is_owner_private_chat(event):
+            return "请在主人的私聊中操作生活任务。"
+        reply = self.task_engine.handle_text(event.message_str, by="tool",
+                                             expected_action=action, expected_task_id=task_id)
+        return reply or "请按任务卡发送明确回执。有多条待办时请带上任务编号。"
 
     @filter.llm_tool("task_confirm")
     async def task_confirm(self, event: AstrMessageEvent, task_id: str = "",
                            note: str = ""):
-        """确认一条待办并排期（默认最新一条）。主人说「确认」「帮我排上」「顺路去取」时用。排期依据是 task_context.json 里的下课/关门/步行时间，不是念头阈值。
+        """处理主人在私聊发送的「确认」回执并排期。有多条待办时，消息须包含任务编号。
 
         Args:
-            task_id (str): 任务 id，可留空表示最新一条
+            task_id (str): 回执中的任务编号，仅有一条待办时可留空
             note (str): 备注，可留空
         """
-        return self.task_engine.tool_confirm(task_id=task_id, note=note)
+        return self._apply_task_tool(event, "confirm", task_id)
 
     @filter.llm_tool("task_done")
     async def task_done(self, event: AstrMessageEvent, task_id: str = ""):
-        """把一条任务标记为已取/已办并归档（默认最新一条）。主人说「取到了」「办完了」时用。
+        """处理主人在私聊发送的「已取」回执并归档。有多条待办时，消息须包含任务编号。
 
         Args:
-            task_id (str): 任务 id，可留空表示最新一条
+            task_id (str): 回执中的任务编号，仅有一条待办时可留空
         """
-        return self.task_engine.tool_done(task_id=task_id)
+        return self._apply_task_tool(event, "done", task_id)
 
     @filter.llm_tool("task_ignore")
     async def task_ignore(self, event: AstrMessageEvent, task_id: str = ""):
-        """忽略一条任务，之后不再提醒（默认最新一条）。主人说「不取了」「忽略」时用。
+        """处理主人在私聊发送的「忽略」回执。有多条待办时，消息须包含任务编号。
 
         Args:
-            task_id (str): 任务 id，可留空表示最新一条
+            task_id (str): 回执中的任务编号，仅有一条待办时可留空
         """
-        return self.task_engine.tool_ignore(task_id=task_id)
+        return self._apply_task_tool(event, "ignore", task_id)
 
     @filter.llm_tool("task_set_context")
     async def task_set_context(self, event: AstrMessageEvent, class_end: str = "",

@@ -15,7 +15,7 @@ import os
 import re
 import tempfile
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
@@ -44,12 +44,14 @@ STATUS_LABELS = {
 ACTIVE_STATUSES = ("pending_confirm", "awaiting_confirm", "planned",
                    "reminded", "deferred")
 
-CONFIRM_RX = re.compile(
-    r"(确认|安排|排一下|帮我取|帮我去|顺路取|我去取|知道了|收到|可以|行)")
-IGNORE_RX = re.compile(r"(忽略|不用|不取|取消|算了|先不管)")
-DONE_RX = re.compile(r"(已取|取了|拿到|取到|办好了|办完|完成)")
-DEFER_RX = re.compile(r"(延后|晚点|等会|下午再|晚上再|明天再)")
-TASK_WORD_RX = re.compile(r"(快递|取件|包裹|任务|待办|驿站|取一下)")
+TASK_REPLIES = {
+    "确认": "confirm", "确认取快递": "confirm",
+    "已取": "done", "已取快递": "done", "快递已取": "done", "取了快递": "done",
+    "忽略": "ignore", "忽略快递": "ignore", "不取了": "ignore",
+    "延后": "defer", "延后取快递": "defer",
+}
+TASK_ID_RX = re.compile(r"tk_[0-9a-f]{10}")
+DEFER_SECONDS = 3600
 
 
 def _now_hm(now: float) -> str:
@@ -123,10 +125,6 @@ class TaskStore:
             if str(task.get("id", "")) == task_id:
                 return task
         return None
-
-    def latest_active(self) -> Optional[Dict[str, Any]]:
-        active = [t for t in self.tasks if t.get("status") in ACTIVE_STATUSES]
-        return max(active, key=lambda t: float(t.get("created_at", 0))) if active else None
 
 
 class TaskEngine:
@@ -281,42 +279,53 @@ class TaskEngine:
         })
         self._event(task, "transition", f"{old}→{to} {note}")
 
-    def _plan_window(self, now: float) -> Dict[str, Any]:
+    def _plan_window(self, now: float, delay: int = 0) -> Optional[Dict[str, Any]]:
         class_end = _today_at(now, str(self.context.get("class_end", "16:00")))
         close = _today_at(now, str(self.context.get("station_close", "18:00")))
-        walk = max(1, int(self.context.get("walk_minutes", 8) or 8))
-        if class_end is None or close is None:
-            return {"start": now, "end": now + 2 * 3600, "reason": "按当前时间安排"}
-        if close <= class_end:
-            close += timedelta(days=1)
-        start_dt = class_end - timedelta(minutes=10)
-        if start_dt < datetime.fromtimestamp(now):
-            start_dt = datetime.fromtimestamp(now) + timedelta(minutes=5)
-        if start_dt >= close:
-            start_dt = close - timedelta(minutes=walk)
-        start = start_dt.timestamp()
-        end = close.timestamp()
-        reason = (f"{class_end.strftime('%H:%M')} 下课，"
-                  f"驿站 {close.strftime('%H:%M')} 关门，"
-                  f"步行 {walk} 分钟，"
-                  f"{start_dt.strftime('%H:%M')} 出发最顺路")
-        return {"start": start, "end": end, "reason": reason}
+        try:
+            walk = int(self.context.get("walk_minutes", 8))
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if class_end is None or close is None or walk <= 0:
+            return None
+        return {
+            "start": max(now + delay, class_end.timestamp()),
+            "end": close.timestamp(),
+            "walk_minutes": walk,
+            "class_end": class_end.timestamp(),
+        }
+
+    @staticmethod
+    def _set_window(task: Dict[str, Any], window: Dict[str, Any], deferred: bool = False) -> str:
+        start, end, walk = window["start"], window["end"], window["walk_minutes"]
+        reason = f"{_now_hm(window['class_end'])} 下课，驿站 {_now_hm(end)} 关门，步行 {walk} 分钟"
+        if start + walk * 60 >= end:
+            start = None
+        else:
+            reason += f"，建议 {_now_hm(start)} 出发（预计 {_now_hm(start + walk * 60)} 到达）"
+        task.update(window_start=start, window_end=end, walk_minutes=walk,
+                    remind_at=start, defer_until=start if deferred else None, plan_reason=reason)
+        return reason
+
+    def _schedule(self, task: Dict[str, Any], now: float, by: str, delay: int = 0) -> str:
+        window = self._plan_window(now, delay)
+        if window is None:
+            return "请先检查调度设置里的下课时间、驿站关门时间和步行分钟数。"
+        reason = self._set_window(task, window, deferred=bool(delay))
+        if task["remind_at"] is None:
+            if task.get("status") != "expired":
+                self._transition(task, "expired", "system", "今天无法在关门前到达")
+            self.store.save()
+            return f"{reason}，今天已来不及。明天可回复「确认 {task['id']}」重新排期。"
+        self._transition(task, "deferred" if delay else "planned", by, reason)
+        self.store.save()
+        if delay:
+            return f"已延后至 {_now_hm(task['remind_at'])}，到点我会提醒你。"
+        return self.format_planned(task)
 
     def plan(self, task: Dict[str, Any], now: Optional[float] = None,
              by: str = "user") -> str:
-        now = float(now or time.time())
-        window = self._plan_window(now)
-        if float(window.get("end") or 0) < now:
-            self._transition(task, "expired", "system", "计划时已过关门时间")
-            self.store.save()
-            return f"今天这个时间点来不及了：{task.get('title', '')}。明天再取，或回我「延后」。"
-        task["window_start"] = window["start"]
-        task["window_end"] = window["end"]
-        task["remind_at"] = max(now, window["start"] - 10 * 60)
-        task["plan_reason"] = window["reason"]
-        self._transition(task, "planned", by, window["reason"])
-        self.store.save()
-        return self.format_planned(task)
+        return self._schedule(task, time.time() if now is None else now, by)
 
     def mark_done(self, task: Dict[str, Any], now: Optional[float] = None,
                   by: str = "user") -> str:
@@ -336,12 +345,7 @@ class TaskEngine:
 
     def defer(self, task: Dict[str, Any], now: Optional[float] = None,
               by: str = "user") -> str:
-        now = float(now or time.time())
-        task["defer_until"] = now + 60 * 60
-        task["remind_at"] = task["defer_until"]
-        self._transition(task, "deferred", by, "延后 1 小时")
-        self.store.save()
-        return f"先记着：{task.get('title', '')}。一小时后我再提醒你。"
+        return self._schedule(task, time.time() if now is None else now, by, DEFER_SECONDS)
 
     # ---------- 提醒 ----------
 
@@ -367,12 +371,64 @@ class TaskEngine:
             return start <= hour < end
         return hour >= start or hour < end
 
+    def _refresh_legacy_window(self, task: Dict[str, Any], now: float) -> None:
+        """按原排期的日期重新核对旧记录，避免把过期提醒顺延到今天。"""
+        deferred = task["status"] == "deferred"
+        delay = DEFER_SECONDS if deferred else 0
+        reminder = task.get("remind_at")
+        reference = float(reminder) - delay if reminder else float(task.get("updated_at") or now)
+        window = self._plan_window(reference, delay)
+        if window is None:
+            task["remind_at"] = None
+            return
+        if task.get("window_end"):
+            window["end"] = min(window["end"], float(task["window_end"]))
+        self._set_window(task, window, deferred)
+
     async def tick(self, now: Optional[float] = None,
                    state: Optional[Dict[str, Any]] = None) -> List[str]:
-        now = float(now or time.time())
+        now = time.time() if now is None else now
         state = state or {}
-        created = self.ingest_sms(now)
+        self.ingest_sms(now)
         sent: List[str] = []
+        due = []
+        window_changed = False
+        for task in self.store.tasks:
+            status = task.get("status")
+            if status == "reminded":
+                end = task.get("window_end")
+                # 已经发过提醒的任务保留一小时，便于用户补回已取回执。
+                if end and now > end + 3600:
+                    self._transition(task, "expired", "system", "任务窗口已过")
+                    window_changed = True
+                continue
+            if status not in ("planned", "deferred"):
+                continue
+            if "walk_minutes" not in task:
+                self._refresh_legacy_window(task, now)
+                window_changed = True
+            reminder = task.get("remind_at")
+            end = task.get("window_end")
+            walk = task.get("walk_minutes", 0)
+            if reminder is None or not end or now + walk * 60 >= end:
+                self._transition(task, "expired", "system", "已无法在关门前到达")
+                window_changed = True
+            elif reminder <= now:
+                due.append(task)
+        if window_changed:
+            self.store.save()
+
+        # 先处理到点提醒，避免发送新任务卡的等待消耗剩余取件时间。
+        if due and not self._is_quiet(now):
+            task = min(due, key=lambda row: row["remind_at"])
+            scheduled = (task["status"], task["remind_at"])
+            if await self._send(self.format_reminder(task, state)):
+                if (task["status"], task.get("remind_at")) == scheduled:
+                    self._transition(task, "reminded", "system", "到点提醒")
+                    task["last_notify_at"] = now
+                    self.store.save()
+                sent.append(task["id"])
+
         # 新任务先发“待确认”卡；重启后未发出的待确认任务也补发，同一轮最多一张
         pending_cards = [t for t in self.store.tasks
                          if t.get("status") == "pending_confirm"
@@ -381,26 +437,6 @@ class TaskEngine:
             task = max(pending_cards, key=lambda t: float(t.get("created_at", 0)))
             if await self._send_card(task, state):
                 sent.append(task.get("id", ""))
-        # 已排期/延后到点的任务：确定性即时提醒，不看 u(t) 阈值
-        due = [t for t in self.store.tasks
-               if t.get("status") in ("planned", "deferred")
-               and float(t.get("remind_at") or 0) <= now]
-        if due:
-            due.sort(key=lambda t: float(t.get("remind_at") or 0))
-            task = due[0]
-            if not self._is_quiet(now):
-                text = self.format_reminder(task, state)
-                if await self._send(text):
-                    self._transition(task, "reminded", "system", "到点提醒")
-                    task["last_notify_at"] = now
-                    self.store.save()
-                    sent.append(task.get("id", ""))
-        # 窗口已过：标记过期，避免第二天继续提醒
-        for task in self.store.tasks:
-            if task.get("status") in ("planned", "reminded", "deferred"):
-                end = float(task.get("window_end") or 0)
-                if end and now > end + 3600:
-                    self._transition(task, "expired", "system", "任务窗口已过")
         self.store.save()
         return sent
 
@@ -416,7 +452,7 @@ class TaskEngine:
     async def _send_card(self, task: Dict[str, Any], state: Dict[str, Any]) -> bool:
         text = self.format_card(task, state)
         ok = await self._send(text)
-        if ok:
+        if ok and task["status"] == "pending_confirm":
             self._transition(task, "awaiting_confirm", "system", "已发任务卡")
             task["last_notify_at"] = time.time()
             self.store.save()
@@ -434,13 +470,13 @@ class TaskEngine:
         if ev.get("status"):
             bits.append(f"状态：{ev['status']}")
         # 短信原文只落档（source.raw）供追溯，不再贴进任务卡——避免把原始日志暴露到聊天里
-        bits.append("回我「确认」我就排时间；回「忽略」就不提醒。")
+        bits.append(f"回复「确认 {task['id']}」排期，回复「忽略 {task['id']}」取消提醒。")
         return "\n".join(bits)
 
     def format_planned(self, task: Dict[str, Any]) -> str:
         reason = task.get("plan_reason") or "按当前时间安排"
         return (f"排好了：{task.get('title', '')}\n"
-                f"{reason}。到点我叫你；取完回我「已取」就归档。")
+                f"{reason}。到点我叫你，取完回复「已取 {task['id']}」归档。")
 
     def format_reminder(self, task: Dict[str, Any],
                         state: Optional[Dict[str, Any]] = None) -> str:
@@ -451,7 +487,7 @@ class TaskEngine:
         line = f"{prefix}该去取快递了：{task.get('title', '')}"
         if ev.get("pickup"):
             line += f"，取件码 {ev['pickup']}"
-        line += f"。{reason}。取完回我「已取」，我就归档。"
+        line += f"。{reason}。取完回复「已取 {task['id']}」归档。"
         return line
 
     def format_list(self) -> str:
@@ -471,60 +507,36 @@ class TaskEngine:
     # ---------- 用户回执 ----------
 
     def handle_text(self, text: str, now: Optional[float] = None,
-                    by: str = "owner") -> Optional[str]:
-        text = str(text or "").strip()
-        if not text:
+                    by: str = "owner", *, expected_action: str = "",
+                    expected_task_id: str = "") -> Optional[str]:
+        parts = str(text or "").strip().rstrip("。！!").split()
+        if not 1 <= len(parts) <= 2:
             return None
-        now = float(now or time.time())
-        task = self.store.latest_active()
-        if task is None:
-            # 没有活动任务时不抢普通聊天：带“快递/待办/任务”字样的闲聊
-            # 交给正常对话流程，绝不再回“现在没有待确认的待办任务。”
-            # （之前这句内部腔调会绕过 LLM 直接漏进聊天，看起来像日志泄露）
+        action = TASK_REPLIES.get(parts[0])
+        if action is None or (expected_action and action != expected_action):
             return None
-        if not (CONFIRM_RX.search(text) or IGNORE_RX.search(text)
-                or DONE_RX.search(text) or DEFER_RX.search(text)
-                or TASK_WORD_RX.search(text)):
+        if len(parts) == 2:
+            if not TASK_ID_RX.fullmatch(parts[1]):
+                return None
+            task = self.store.find(parts[1])
+            if task is None:
+                return "找不到这个任务，请核对任务卡上的编号。"
+        else:
+            active = [t for t in self.store.tasks if t.get("status") in ACTIVE_STATUSES]
+            if not active:
+                return None
+            if len(active) > 1:
+                return f"现在有多条待办，请回复「{parts[0]} 任务编号」，编号见各自的任务卡。"
+            task = active[0]
+        if expected_task_id and task["id"] != expected_task_id.strip():
             return None
-        if DONE_RX.search(text):
+        status = task["status"]
+        if action == "confirm" and status in ("pending_confirm", "awaiting_confirm", "deferred", "expired"):
+            return self.plan(task, now, by)
+        if status not in ACTIVE_STATUSES or action == "confirm":
+            return f"当前状态为「{STATUS_LABELS.get(status, status)}」。"
+        if action == "done":
             return self.mark_done(task, now, by)
-        if IGNORE_RX.search(text):
+        if action == "ignore":
             return self.mark_ignored(task, now, by)
-        if DEFER_RX.search(text):
-            return self.defer(task, now, by)
-        explicit_confirm = bool(CONFIRM_RX.search(text))
-        task_action = bool(TASK_WORD_RX.search(text)) and any(
-            w in text for w in ("取", "拿", "安排", "排", "帮"))
-        if explicit_confirm or task_action:
-            if task.get("status") in ("pending_confirm", "awaiting_confirm", "deferred"):
-                return self.plan(task, now, by)
-            if task.get("status") in ("planned", "reminded"):
-                return f"已经在计划里了：{task.get('title', '')}。到点我会提醒你。"
-        return None
-
-    def find_by_text(self, text: str) -> Optional[Dict[str, Any]]:
-        text = str(text or "")
-        for task in self.store.tasks:
-            if task.get("id") in text:
-                return task
-        return self.store.latest_active()
-
-    def tool_confirm(self, task_id: str = "", note: str = "") -> str:
-        task = self.store.find(task_id) if task_id else self.store.latest_active()
-        if not task:
-            return "没有这个任务。用 task_list 查看当前待办。"
-        if task.get("status") in ("pending_confirm", "awaiting_confirm", "deferred"):
-            return self.plan(task, by="tool")
-        return f"{task.get('title', '')} 当前是 {STATUS_LABELS.get(task.get('status'), task.get('status'))}，不需要再确认。"
-
-    def tool_done(self, task_id: str = "") -> str:
-        task = self.store.find(task_id) if task_id else self.store.latest_active()
-        if not task:
-            return "没有这个任务。"
-        return self.mark_done(task, by="tool")
-
-    def tool_ignore(self, task_id: str = "") -> str:
-        task = self.store.find(task_id) if task_id else self.store.latest_active()
-        if not task:
-            return "没有这个任务。"
-        return self.mark_ignored(task, by="tool")
+        return self.defer(task, now, by)
